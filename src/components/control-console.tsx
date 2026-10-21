@@ -80,11 +80,7 @@ export function ControlConsole() {
   }, []);
 
   useEffect(() => {
-    if (!token) {
-      setSnapshot(null);
-      setApiAvailable(false);
-      return;
-    }
+    if (!token) return;
     const controller = new AbortController();
     let inFlight = false;
     let mounted = true;
@@ -102,6 +98,8 @@ export function ControlConsole() {
           if (mounted) {
             setToken("");
             setSnapshot(null);
+            setApiAvailable(false);
+            setPending(null);
             setConnectionError("Chave inválida. Autorize o painel novamente.");
             setLoginOpen(true);
           }
@@ -116,7 +114,13 @@ export function ControlConsole() {
         }
         const raw: unknown = await response.json();
         if (mounted) {
-          setSnapshot(normalizeStatus(raw));
+          const freshStatus = normalizeStatus(raw);
+          setSnapshot(freshStatus);
+          setPending((current) => {
+            if (current === "start" && freshStatus.core.power === "running") return null;
+            if (current === "stop" && freshStatus.core.power === "stopped") return null;
+            return current;
+          });
           setApiAvailable(true);
           setConnectionError(null);
         }
@@ -148,15 +152,6 @@ export function ControlConsole() {
   const labels = statusCopy(powerView);
 
   useEffect(() => {
-    if (!pending || !snapshot) return;
-    if ((pending === "start" && snapshot.core.power === "running") ||
-        (pending === "stop" && snapshot.core.power === "stopped")) {
-      setPending(null);
-      setCommandError(null);
-    }
-  }, [pending, snapshot]);
-
-  useEffect(() => {
     if (!pending) return;
     const timer = window.setTimeout(() => {
       setPending(null);
@@ -170,6 +165,9 @@ export function ControlConsole() {
     if (!tokenDraft.trim()) return;
     setConnectionError(null);
     setCommandError(null);
+    setSnapshot(null);
+    setApiAvailable(false);
+    setPending(null);
     setToken(tokenDraft.trim());
     setTokenDraft("");
     setLoginOpen(false);
