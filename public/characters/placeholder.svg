@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="740" viewBox="0 0 420 740" fill="none" role="img" aria-label="Silhueta estilizada provisória de Alexios, cabelo branco e traje preto">
+  <defs>
+    <linearGradient id="coat" x1="130" y1="190" x2="304" y2="520" gradientUnits="userSpaceOnUse"><stop stop-color="#323339"/><stop offset=".44" stop-color="#17191d"/><stop offset="1" stop-color="#070809"/></linearGradient>
+    <linearGradient id="pants" x1="168" y1="419" x2="259" y2="690" gradientUnits="userSpaceOnUse"><stop stop-color="#1c1e22"/><stop offset="1" stop-color="#080a0c"/></linearGradient>
+    <linearGradient id="skin" x1="170" y1="107" x2="254" y2="208" gradientUnits="userSpaceOnUse"><stop stop-color="#f6ded9"/><stop offset=".65" stop-color="#d9bcb4"/><stop offset="1" stop-color="#a88e89"/></linearGradient>
+    <linearGradient id="hair" x1="154" y1="70" x2="261" y2="174" gradientUnits="userSpaceOnUse"><stop stop-color="#ffffff"/><stop offset=".57" stop-color="#d7d9df"/><stop offset="1" stop-color="#8d949f"/></linearGradient>
+    <linearGradient id="sleeve" x1="105" y1="253" x2="300" y2="380" gradientUnits="userSpaceOnUse"><stop stop-color="#35353c"/><stop offset=".6" stop-color="#17191d"/><stop offset="1" stop-color="#0b0c10"/></linearGradient>
+    <linearGradient id="tattoo" x1="137" y1="290" x2="178" y2="346" gradientUnits="userSpaceOnUse"><stop stop-color="#4a191f"/><stop offset="1" stop-color="#090809"/></linearGradient>
+  </defs>
+  <g stroke="#08090b" stroke-width="3" stroke-linejoin="round">
+    <!-- Shoes and legs -->
+    <path d="M169 417L156 640L147 693L171 708L197 698L210 485L221 505L232 699L258 712L276 695L259 634L259 418Z" fill="url(#pants)"/>
+    <path d="M148 680L179 681L177 704Q174 715 148 721L115 717Q110 704 126 695Z" fill="#0a0b0d"/>
+    <path d="M232 684L264 680L290 706Q300 718 287 723L243 723Q234 722 232 711Z" fill="#0a0b0d"/>
+    <path d="M189 473L179 603M236 473L246 609" stroke="#484950" stroke-width="2" opacity=".62"/>
+    <path d="M147 712L179 712M243 714L292 715" stroke="#55565b" stroke-width="2"/>
+    <!-- Shirt and neck -->
+    <path d="M187 193L186 229L154 252L204 369L261 249L231 224L234 195Z" fill="url(#skin)"/>
+    <path d="M185 221L210 248L235 223L245 369L164 371Z" fill="#d9d9dc"/>
+    <path d="M190 226L210 251L224 229L214 295L201 301Z" fill="#979aa1" stroke="#858a93" stroke-width="1"/>
+    <path d="M181 225L166 256L189 298L210 247Z" fill="#f7f7f8" stroke="#f7f7f8" stroke-width="1"/>
+    <path d="M236 222L250 251L226 302L210 247Z" fill="#e5e5e9" stroke="#f7f7f8" stroke-width="1"/>
+    <!-- Back coat structure -->
+    <path d="M177 219Q145 215 122 237Q104 257 110 314L124 424L149 458L163 436L165 506L249 509L260 435L277 458L304 422L313 314Q314 255 289 236L237 217L208 286Z" fill="url(#coat)"/>
+    <path d="M181 219L211 288L194 367L171 499L144 496L162 315L145 248Z" fill="#14161a" stroke="#43444a" stroke-width="1.7"/>
+    <path d="M236 218L211 288L226 371L252 502L278 494L260 315L275 248Z" fill="#131519" stroke="#494a51" stroke-width="1.7"/>
+    <path d="M182 218L166 246L196 284L207 298L185 333L163 287L147 263Z" fill="#27292e" stroke="#4b4c53" stroke-width="1.5"/>
+    <path d="M237 219L253 247L224 284L211 299L233 333L254 286L273 263Z" fill="#202227" stroke="#484950" stroke-width="1.5"/>
+    <path d="M206 296L208 487M196 359L187 491" stroke="#62626a" stroke-width="1.5" opacity=".33"/>
+    <path d="M243 376L248 383M245 399L250 405" stroke="#b9bdc1" stroke-width="1.2" opacity=".7"/>
+    <!-- Rolled sleeves and folded forearms -->
+    <path d="M126 252Q105 251 95 276L100 338L117 370L151 354L158 313L141 268Z" fill="url(#sleeve)"/>
+    <path d="M287 253Q308 256 316 283L310 337L296 366L267 348L261 306L276 271Z" fill="url(#sleeve)"/>
+    <path d="M103 321L149 313L155 338L112 359Z" fill="#37373d" stroke="#77777b" stroke-width="1.5"/>
+    <path d="M266 316L308 328L301 359L263 337Z" fill="#303136" stroke="#686971" stroke-width="1.5"/>
+    <!-- tattooed forearm running under opposite elbow -->
+    <path d="M111 354Q128 337 153 329L205 336L240 352L236 373L190 375L150 382Q124 386 111 369Z" fill="url(#skin)" stroke="#654b49"/>
+    <path d="M126 359Q139 343 152 346Q160 353 151 358L139 369L161 361L178 363" stroke="url(#tattoo)" stroke-width="5" stroke-linecap="round"/>
+    <path d="M131 361L138 352M141 364L150 352M155 364L163 350" stroke="#3c1518" stroke-width="2"/>
+    <path d="M179 364Q193 363 213 363" stroke="#6c514f" stroke-width="2" opacity=".5"/>
+    <!-- right forearm folds over -->
+    <path d="M293 354Q281 337 260 330L214 331L167 341L166 361L214 374L262 382Q286 386 299 370Z" fill="url(#sleeve)"/>
+    <path d="M293 352L271 366L238 366" stroke="#62646b" stroke-width="2"/>
+    <path d="M173 335L154 338Q141 343 143 354Q147 363 159 362L175 359Z" fill="url(#skin)" stroke="#745956"/>
+    <path d="M151 349L165 345M150 354L164 351" stroke="#97736d" stroke-width="1.5"/>
+    <path d="M250 382L273 391L288 387Q294 378 281 372L267 368Z" fill="url(#skin)" stroke="#785b59"/>
+    <path d="M273 384L289 384M270 378L284 379" stroke="#95726e" stroke-width="1.5"/>
+    <!-- Neck tattoo emerging just above collar -->
+    <path d="M231 206Q243 201 245 189L238 177L247 182L250 194L244 215L235 225" stroke="#351619" stroke-width="5" stroke-linecap="round"/>
+    <path d="M245 185L254 180L250 193L259 199L248 201M238 189L231 184" stroke="#4c2023" stroke-width="2.3" stroke-linecap="round"/>
+    <!-- Face -->
+    <path d="M162 128Q166 87 209 81Q258 86 262 131L254 176Q243 202 215 216Q191 215 175 192L163 161Z" fill="url(#skin)"/>
+    <path d="M163 153Q148 147 154 167Q157 178 170 178M261 149Q274 143 269 165Q264 176 255 177" fill="#d0aaa1" stroke="#9c7e79" stroke-width="1.8"/>
+    <path d="M168 132Q179 121 197 125M222 124Q241 118 255 130" stroke="#5c4f52" stroke-width="3" stroke-linecap="round"/>
+    <path d="M171 147L195 145L199 150L191 155L177 155Z" fill="#f0e5e4" stroke="#8e6968" stroke-width="1.5"/>
+    <path d="M224 147L246 145L249 153L239 157L226 154Z" fill="#f2e4e3" stroke="#916f70" stroke-width="1.5"/>
+    <path d="M184 145L192 145L192 156L184 155Z" fill="#8a1824" stroke="#54131a" stroke-width="1"/>
+    <path d="M230 145L238 145L238 156L230 155Z" fill="#871925" stroke="#55131a" stroke-width="1"/>
+    <circle cx="188" cy="149" r="2.2" fill="#fb6e79" stroke="none"/><circle cx="234" cy="149" r="2.2" fill="#fb6e79" stroke="none"/>
+    <path d="M174 142L198 142M221 141L248 140" stroke="#1c191a" stroke-width="3.2" stroke-linecap="round"/>
+    <path d="M210 151L204 172L214 175" stroke="#ac8981" stroke-width="1.9"/>
+    <path d="M197 190Q210 194 224 189" stroke="#7d5956" stroke-width="2" stroke-linecap="round"/>
+    <path d="M191 194Q211 206 232 192" stroke="#e8c5bb" stroke-width="1.5" opacity=".6"/>
+    <!-- Hair, layered manhwa spikes -->
+    <path d="M163 152Q143 139 145 107L133 116L147 83L143 73L165 77L171 54L186 67L211 43L231 64L250 51L255 77L277 76L267 101L273 124L257 154L254 114L241 103L210 114L185 110L173 135Z" fill="url(#hair)" stroke="#90949b" stroke-width="2"/>
+    <path d="M148 90L166 67L168 89L192 62L186 104L206 70L204 113L227 67L231 109L248 79L253 126L264 102" stroke="#f3f4f5" stroke-width="4" stroke-linecap="round"/>
+    <path d="M147 115L164 106L171 153L187 116L203 124L220 104L242 119L260 107" stroke="#c2c6cf" stroke-width="3" stroke-linecap="round"/>
+    <path d="M147 118L162 99L159 140L174 123L171 153" stroke="#fff" stroke-width="3"/>
+    <path d="M189 72L180 107L193 112L205 82M216 72L210 106L222 99M238 73L232 100L242 102" stroke="#ffffff" stroke-width="2" opacity=".72"/>
+    <path d="M153 133L164 152M259 137L255 159" stroke="#999da7" stroke-width="2"/>
+    <!-- Highlights in garment -->
+    <path d="M122 277L119 311M296 276L299 311M151 394L155 429M270 397L265 432" stroke="#64656d" stroke-width="2" opacity=".33"/>
+  </g>
+</svg>
