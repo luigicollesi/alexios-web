@@ -8,6 +8,18 @@ Esta branch adiciona o **Worker Agent Hub** em [worker/README.md](worker/README.
 
 O áudio bruto não sai do computador local. As transcrições podem conter informações de terceiros, que devem ser informados da escuta ativa. Os PNGs das quatro poses ainda não estão presentes; até adicioná-los, haverá fallback visual.
 
+## Endpoint HTTPS público do Core
+
+O painel em produção é **https://alexios-web.vercel.app/**. A branch de integração adiciona uma entrada HTTPS autenticada que recebe o long polling do Python e encaminha os dados ao Durable Object, usando o mesmo domínio:
+
+- `GET https://alexios-web.vercel.app/v1/agent/poll`
+- `POST https://alexios-web.vercel.app/v1/agent/state`
+- `POST https://alexios-web.vercel.app/v1/transcript`
+
+Configure `ALEXIOS_BRIDGE_URL=https://alexios-web.vercel.app` no Python. Para que o proxy funcione, publique **esta branch** na Vercel com `ALEXIOS_API_BASE_URL=https://<seu-agent-hub>.workers.dev` apontando para o Worker persistente, e configure `ALEXIOS_AGENT_TOKEN` igual ao do Core Python e Worker. O token do dashboard é separado. A Vercel apenas encaminha pedidos; não mantém os ciclos ou o contexto em memória. Não configure a própria URL Vercel em `ALEXIOS_API_BASE_URL`, pois criaria recursão.
+
+**Importante:** se `alexios-web.vercel.app` ainda publica `main` ou `dev`, estas rotas não estão disponíveis até promover a branch de integração e fazer deploy. O domínio estar online não garante que o protocolo novo esteja implantado.
+
 ## Implementado
 
 - Personagem central com fallback vetorial até os PNGs finais serem adicionados.
