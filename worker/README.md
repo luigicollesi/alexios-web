@@ -2,6 +2,12 @@
 
 Serviço **persistente** de long polling, comandos do painel, agregação de transcrições e análises de contexto a cada ~8 segundos com OpenRouter. O Worker é o upstream `ALEXIOS_API_BASE_URL` esperado pelo Next.js. A versão com SQLite Durable Objects mantém estado mesmo quando instâncias são reiniciadas.
 
+## Integração com https://alexios-web.vercel.app
+
+O Python usa a URL Vercel como `ALEXIOS_BRIDGE_URL`, e a Vercel encaminha seus pedidos autenticados `/v1/agent/poll`, `/v1/agent/state` e `/v1/transcript` para este Worker. O endereço **público HTTPS do Worker** deve ser configurado na Vercel como `ALEXIOS_API_BASE_URL`. A Vercel usa o mesmo token do Python para autenticar o upstream; não são necessários tokens no código fonte.
+
+O deploy da Vercel **não hospeda** o Durable Object. Publique este Worker separadamente e configure os segredos via Wrangler.
+
 ## Execução local
 
 Requer Node.js 22+, npm e uma conta Cloudflare para publicar.
