@@ -1,103 +1,82 @@
-# Alexios Web
+# Alexios Web — Vercel + Neon
 
-Painel futurista de controle do Alexios Core em Next.js 16, React 19, TypeScript e Tailwind CSS 4.
+Painel futurista do assistente Alexios em Next.js 16, React 19 e Tailwind CSS 4. A branch `feature/ambient-listening-bridge` integra diretamente o Agent Python com o servidor `https://alexios-web.vercel.app/`, usando **somente Vercel Functions e Neon PostgreSQL** para o backend. Não há Cloudflare, Worker ou cron externo.
 
-## Modo ambiente integrado (branch experimental)
+## Arquitetura
 
-Esta branch adiciona o **Worker Agent Hub** em [worker/README.md](worker/README.md), que recebe as transcrições do Python na branch [feature/ambient-listening](https://github.com/luigicollesi/alexios/tree/feature/ambient-listening). O Worker mantém long polling e contexto com Durable Objects, envia janelas consolidadas à IA em ciclos aproximados de 8 segundos e devolve fala opcional e postura ao painel. `ALEXIOS_API_BASE_URL` deve apontar para o Worker; `ALEXIOS_AGENT_TOKEN` deve ser idêntico nos três componentes. A chave OpenRouter fica apenas no Worker.
+```text
+Alexios Python (microfone / Whisper / TTS)
+    ├── GET  https://alexios-web.vercel.app/v1/agent/poll
+    ├── POST https://alexios-web.vercel.app/v1/agent/state
+    ├── POST https://alexios-web.vercel.app/v1/transcript
+    └── POST https://alexios-web.vercel.app/v1/agent/analyze  (a cada ~8s)
+                         │
+                Next.js API na Vercel
+                    │          │
+           Neon PostgreSQL    OpenRouter
+             estado/lease      inferência
+                contexto
+                decisões
+                         │
+             dashboard /api/alexios/status e /power
+```
 
-O áudio bruto não sai do computador local. As transcrições podem conter informações de terceiros, que devem ser informados da escuta ativa. Os PNGs das quatro poses ainda não estão presentes; até adicioná-los, haverá fallback visual.
+O Python grava janelas de quatro segundos começando a cada três, com um segundo de sobreposição. Faster-Whisper transcreve **localmente**; somente palavras e timestamps são enviados por HTTPS ao Next.js. A API remove duplicatas da sobreposição e acumula texto pendente no Neon. O Python solicita uma análise contextual em um ciclo separado de aproximadamente oito segundos. O servidor recupera o contexto anterior, as posturas disponíveis e a transcrição, consulta o OpenRouter, valida o JSON `{speech,pose,context}` e atualiza o banco.
 
-## Endpoint HTTPS público do Core
+As posturas são `idle`, `listening`, `thinking` e `speaking`. `speech` vazio significa silêncio. O dashboard mostra a última fala e a postura; o TTS reproduz localmente. O botão **FIM** cessa o microfone sem desconectar o polling; **INICIAR** retoma.
 
-O painel em produção é **https://alexios-web.vercel.app/**. A branch de integração adiciona uma entrada HTTPS autenticada que recebe o long polling do Python e encaminha os dados ao Durable Object, usando o mesmo domínio:
+## Banco Neon
 
-- `GET https://alexios-web.vercel.app/v1/agent/poll`
-- `POST https://alexios-web.vercel.app/v1/agent/state`
-- `POST https://alexios-web.vercel.app/v1/transcript`
+Projeto: **`long-bar-99133807`** (Alexios), branch padrão `production`. Migração versionada em `db/migrations/001_alexios_runtime.sql`:
 
-Configure `ALEXIOS_BRIDGE_URL=https://alexios-web.vercel.app` no Python. Para que o proxy funcione, publique **esta branch** na Vercel com `ALEXIOS_API_BASE_URL=https://<seu-agent-hub>.workers.dev` apontando para o Worker persistente, e configure `ALEXIOS_AGENT_TOKEN` igual ao do Core Python e Worker. O token do dashboard é separado. A Vercel apenas encaminha pedidos; não mantém os ciclos ou o contexto em memória. Não configure a própria URL Vercel em `ALEXIOS_API_BASE_URL`, pois criaria recursão.
+- `alexios_sessions`: sessão ativa, lease, energia, contexto, expressão, texto pendente, inferência ativa.
+- `alexios_power_requests`: idempotência dos comandos de energia.
+- `alexios_inference_history`: histórico de decisões (sem gravações de áudio).
 
-**Importante:** se `alexios-web.vercel.app` ainda publica `main` ou `dev`, estas rotas não estão disponíveis até promover a branch de integração e fazer deploy. O domínio estar online não garante que o protocolo novo esteja implantado.
+A migração está aplicada ao banco do projeto informado. Os dados são isolados dos demais projetos Neon.
 
-## Implementado
+## Configuração na Vercel
 
-- Personagem central com fallback vetorial até os PNGs finais serem adicionados.
-- HUD escuro (três tons de cinza/preto) com grades, linhas, anéis, ornamentos e detalhes vermelhos.
-- Escala contínua da composição 1600x900 para notebooks e monitores Full HD, QHD e 4K.
-- Botão neutro sem Agent fazendo long polling; vermelho FIM quando Core running; verde INICIAR quando Core stopped.
-- Consulta de estado a cada 3,5 segundos, com TTL de 45 segundos para a lease de polling.
-- Sem atualizações otimistas: comando aceito não é comando executado; o dashboard espera confirmação real.
-- Chave de acesso ao painel em memória e segredo da API do Agent somente no servidor.
-- Proxy Next.js protegido por token para status e energia, com nova checagem do estado antes do comando.
+Em **Vercel → Projeto alexios-web → Settings → Environment Variables**, configure no ambiente de produção:
 
-## Configuração
+```dotenv
+DATABASE_URL=postgresql://...URL-do-projeto-long-bar-99133807...
+ALEXIOS_DASHBOARD_TOKEN=token-aleatorio-exclusivo-do-painel-com-24-ou-mais-caracteres
+ALEXIOS_AGENT_TOKEN=outro-token-aleatorio-compartilhado-com-python
+OPENROUTER_API_KEY=sk-or-v1-sua-chave
+OPENROUTER_MODEL=nvidia/nemotron-3-ultra-550b-a55b:free
+```
 
-Requer Node.js 22 e npm.
+Copie `DATABASE_URL` do painel **Neon → Projeto Alexios → Connect**, preferencialmente a conexão pooled com SSL. O *project ID* não substitui a URL. Não configure `ALEXIOS_API_BASE_URL`, que pertencia à antiga ponte externa; a API agora consulta o Neon diretamente. **Nunca use `NEXT_PUBLIC_` para segredos.**
 
-1. Execute npm install
-2. Copie .env.example para .env.local
-3. Configure ALEXIOS_DASHBOARD_TOKEN (mínimo de 24 caracteres aleatórios), ALEXIOS_API_BASE_URL e ALEXIOS_AGENT_TOKEN
-4. Execute npm run dev
-5. Abra http://localhost:3000 e use AUTORIZAR ACESSO com a chave do dashboard
+Faça deploy desta branch no endereço oficial. Se `https://alexios-web.vercel.app` ainda publica outra branch, as novas rotas não estarão presentes até o deploy. Nada neste repositório implanta a Vercel automaticamente.
 
-Scripts de validação: npm run lint, npm run typecheck e npm run build.
+## Desenvolvimento local
 
-Sem API configurada, o dashboard é exibido, mas permanece desconectado e nunca simula um Agent online.
+Requer Node.js 22+ e npm:
 
-## API esperada do Agent
+```bash
+npm install
+cp .env.example .env.local
+npm run dev
+```
 
-O servidor Next.js encaminha as chamadas à URL definida em ALEXIOS_API_BASE_URL. A API upstream deve exigir Authorization: Bearer [ALEXIOS_AGENT_TOKEN] e usar HTTPS (HTTP local só em desenvolvimento).
+Configure a URL do Neon em `.env.local`, preferencialmente em uma branch Neon de teste. O Agent Python pode usar `ALEXIOS_BRIDGE_URL=http://localhost:3000` durante o desenvolvimento e `https://alexios-web.vercel.app` em produção.
 
-GET /v1/status
+Verificações: `npm run lint`, `npm run typecheck` e `npm run build`. O GitHub Actions executa esses comandos a cada pull request. As alterações ficam na branch de integração e não são mescladas automaticamente.
 
-    {
-      "agent": {
-        "connected": true,
-        "pollingActive": true,
-        "lastPollAt": "2026-10-21T18:00:00.000Z",
-        "instanceId": "local-main"
-      },
-      "core": {
-        "power": "running",
-        "expressionId": "listening"
-      }
-    }
+## Long polling e segurança
 
-O Agent deve estar realmente executando long polling autenticado. lastPollAt precisa ser atualizado em cada início ou renovação de poll e representar a mesma lease ativa. Datas inválidas, polling inativo ou atraso superior a 45 segundos forçam o modo offline. core.power admite running, stopped, starting, stopping e unknown. core.expressionId admite idle, listening, thinking e speaking.
-
-POST /v1/power
-
-    {
-      "action": "stop",
-      "requestId": "550e8400-e29b-41d4-a716-446655440000"
-    }
-
-Qualquer resposta 2xx do upstream confirma apenas aceitação do comando. O dashboard mantém o estado pendente até o GET confirmar a transição, ou informa falta de confirmação após 18 segundos. O Agent deve utilizar requestId para idempotência e publicar o estado real após executar.
-
-O Worker/serviço de long polling, a persistência Durable Objects e os processos Python são componentes separados e precisam implementar ou adaptar esse contrato.
+- Cada GET `/v1/agent/poll` aguarda até 20 segundos, verificando alterações periodicamente no Neon. Isso funciona com instâncias efêmeras da Vercel; nenhum `setInterval` é executado em segundo plano após o término da requisição.
+- A lease expira após 45 segundos sem renovação. Somente uma instância Python pode controlar a sessão `primary`.
+- Requisições são autenticadas com `ALEXIOS_AGENT_TOKEN`; o navegador usa somente `ALEXIOS_DASHBOARD_TOKEN`.
+- A análise de IA tem *claim* atômico, evita chamadas concorrentes e descarta respostas obsoletas após desligamento.
+- As palavras em análise e o contexto sobrevivem às reinicializações das funções da Vercel. O banco mantém histórico de decisões e contexto até que uma política de retenção seja definida.
+- A latência real depende do Whisper, do Neon, da rede e do OpenRouter. Não existe garantia rígida de conclusão em oito segundos.
+- O projeto recebe **transcrições** (dados pessoais potenciais), mas não áudio bruto. Informe pessoas próximas sobre a escuta permanente quando ligada.
 
 ## Imagens da persona
 
-Adicione arquivos transparentes, todos de corpo inteiro e com o mesmo alinhamento, em public/characters/:
+Adicione à pasta `public/characters/` os quatro PNGs transparentes finais: `idle.png`, `listening.png`, `thinking.png` e `speaking.png`. Até isso ocorrer, o painel utiliza `placeholder.svg`. A composição permanece dimensionada proporcionalmente à resolução disponível.
 
-- idle.png: braços cruzados, postura padrão
-- listening.png: escutando
-- thinking.png: distraído/pensativo
-- speaking.png: falando
-
-Até que esses PNGs existam, placeholder.svg é utilizado como alternativa visual original. A pose vem do Core, não da interpretação feita no navegador.
-
-## Responsividade
-
-O layout de referência mede 1600 x 900. A escala visual resulta de:
-
-    min(viewportWidth / 1600, viewportHeight / 900)
-
-Essa escala é contínua, inclui tipografia, ilustração e controle de energia e mantém a mesma proporção em desktops, mesmo com resoluções muito diferentes. O cenário de fundo cobre o espaço adicional em telas ultrawide.
-
-## Segurança e publicação
-
-Não utilize NEXT_PUBLIC_ para segredos. As rotas /api/alexios/status e /api/alexios/power recusam acesso sem uma chave de painel válida; o segredo da API upstream nunca é enviado ao navegador. O servidor deve ser publicado sob HTTPS.
-
-Cloudflare recomenda atualmente vinext para novos projetos Next.js em Workers. A configuração final de deploy e a implantação do Worker/DO do Agent são uma etapa separada; a aplicação inicial roda em Next.js nativo.
+Consulte também [Alexios Python — documentação do modo ambiente](https://github.com/luigicollesi/alexios/blob/feature/ambient-listening/AMBIENT.md).
