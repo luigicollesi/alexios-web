@@ -2,6 +2,12 @@
 
 Painel futurista de controle do Alexios Core em Next.js 16, React 19, TypeScript e Tailwind CSS 4.
 
+## Modo ambiente integrado (branch experimental)
+
+Esta branch adiciona o **Worker Agent Hub** em [worker/README.md](worker/README.md), que recebe as transcrições do Python na branch [feature/ambient-listening](https://github.com/luigicollesi/alexios/tree/feature/ambient-listening). O Worker mantém long polling e contexto com Durable Objects, envia janelas consolidadas à IA em ciclos aproximados de 8 segundos e devolve fala opcional e postura ao painel. `ALEXIOS_API_BASE_URL` deve apontar para o Worker; `ALEXIOS_AGENT_TOKEN` deve ser idêntico nos três componentes. A chave OpenRouter fica apenas no Worker.
+
+O áudio bruto não sai do computador local. As transcrições podem conter informações de terceiros, que devem ser informados da escuta ativa. Os PNGs das quatro poses ainda não estão presentes; até adicioná-los, haverá fallback visual.
+
 ## Implementado
 
 - Personagem central com fallback vetorial até os PNGs finais serem adicionados.
