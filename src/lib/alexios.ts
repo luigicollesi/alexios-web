@@ -12,6 +12,9 @@ export interface AlexiosStatus {
   core: {
     power: CorePower;
     expressionId: ExpressionId;
+    speech: { seq: number; text: string; at: string | null };
+    lastAiAt: string | null;
+    lastError: string | null;
   };
   receivedAt: string;
 }
@@ -50,6 +53,9 @@ export function normalizeStatus(payload: unknown, now = Date.now()): AlexiosStat
       ? (rawExpression as ExpressionId)
       : "idle";
 
+  const speech = object(core.speech);
+  const seq = typeof speech.seq === "number" && Number.isSafeInteger(speech.seq) && speech.seq >= 0 ? speech.seq : 0;
+
   return {
     agent: {
       connected,
@@ -57,7 +63,16 @@ export function normalizeStatus(payload: unknown, now = Date.now()): AlexiosStat
       lastPollAt: rawPoll,
       instanceId: typeof agent.instanceId === "string" ? agent.instanceId.slice(0, 80) : null,
     },
-    core: { power, expressionId },
+    core: {
+      power, expressionId,
+      speech: {
+        seq,
+        text: typeof speech.text === "string" ? speech.text.slice(0, 600) : "",
+        at: typeof speech.at === "string" ? speech.at : null,
+      },
+      lastAiAt: typeof core.lastAiAt === "string" ? core.lastAiAt : null,
+      lastError: typeof core.lastError === "string" ? core.lastError.slice(0, 180) : null,
+    },
     receivedAt: new Date(now).toISOString(),
   };
 }

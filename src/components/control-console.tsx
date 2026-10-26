@@ -303,7 +303,13 @@ export function ControlConsole() {
             <div className="metric-row"><span><Volume2 size={14} /> EXPRESSÃO</span><strong>{live ? EXPRESSION_LABELS[expression] : "--"}</strong></div>
             <div className="metric-row"><span><Power size={14} /> CORE POWER</span><strong>{snapshot?.core.power.toUpperCase() ?? "UNKNOWN"}</strong></div>
           </div>
-          <div className="right-technical"><div className="technical-line" /><div className="technical-line short" /><span>RESPONSE CHANNEL // STANDBY</span></div>
+          <section className="speech-log" aria-label="Última fala do Alexios" aria-live="polite">
+            <span className="speech-caption"><Volume2 size={12} /> ÚLTIMA FALA / ALEXIOS</span>
+            <p>{snapshot?.core.speech.text || "Nenhuma intervenção até o momento. O Alexios pode optar por permanecer em silêncio."}</p>
+            <span className="speech-timestamp">{snapshot?.core.speech.at ? formatPoll(snapshot.core.speech.at) : "AGUARDANDO DECISÃO"}</span>
+          </section>
+          {snapshot?.core.lastError && <p className="speech-error" role="status">{snapshot.core.lastError}</p>}
+          <div className="right-technical"><div className="technical-line" /><div className="technical-line short" /><span>RESPONSE CHANNEL // LIVE</span></div>
         </aside>
 
         <div className="vertical-rail rail-left" aria-hidden="true"><span>AX // 041.734</span></div>

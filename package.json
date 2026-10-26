@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.2.0",
+    "server-only": "^0.0.1",
     "next": "16.4.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

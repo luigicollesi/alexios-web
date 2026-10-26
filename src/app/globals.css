@@ -328,3 +328,10 @@ button:focus-visible, input:focus-visible { outline: 2px solid #e4545e; outline-
 @media (prefers-reduced-motion: reduce) {
   *, *:before, *:after { animation-duration: .01ms !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+
+/* Ambient agent transcript inside the existing right-hand HUD. */
+.speech-log { margin-top: 24px; border: 1px solid rgba(179,73,85,.35); background: rgba(15,16,20,.83); padding: 13px 14px; text-align: left; }
+.speech-caption { color: #d66c77; font: 700 9px/1.5 monospace; letter-spacing: .11em; display: flex; align-items: center; gap: 7px; }
+.speech-log p { color: #e0dfe4; font-size: 11px; line-height: 1.6; max-height: 100px; overflow-y: auto; overflow-wrap: anywhere; margin: 9px 0 8px; }
+.speech-timestamp { color: #777983; font: 9px monospace; letter-spacing: .1em; }
+.speech-error { margin-top: 8px; color: #ee9a9f; font-size: 10px; line-height: 1.3; }
