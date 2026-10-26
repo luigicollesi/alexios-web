@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "alexios-agent-hub",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-10-20",
+  "durable_objects": {
+    "bindings": [
+      { "name": "ALEXIOS_HUB", "class_name": "AlexiosHub" }
+    ]
+  },
+  "exports": {
+    "AlexiosHub": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "vars": {
+    "OPENROUTER_MODEL": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "PUBLIC_SITE_URL": "https://alexios.example.com"
+  },
+  "observability": { "enabled": true }
+}
