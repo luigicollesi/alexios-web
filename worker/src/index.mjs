@@ -270,7 +270,8 @@ export class AlexiosHub {
           return json({ error: cause.message }, 400);
         }
         await this.write(merged.session);
-        if (merged.accepted > 0 && !(await this.ctx.storage.getAlarm())) {
+        if (merged.accepted > 0 && !merged.session.inferenceStartedAt &&
+            !(await this.ctx.storage.getAlarm())) {
           // The first 4 s window arrives ~4 s after capture starts.
           await this.ctx.storage.setAlarm(Date.now() + 4_000);
         }
@@ -286,12 +287,19 @@ export class AlexiosHub {
   async alarm() {
     const session = await this.read();
     if (session.desiredPower !== "running") return;
+
+    // Requests can interleave while the model fetch is pending; serialize them.
+    if (session.inferenceStartedAt && Date.now() - session.inferenceStartedAt < 120_000) {
+      if (session.pendingWords.length) {
+        await this.ctx.storage.setAlarm(Date.now() + CONTEXT_INTERVAL_MS);
+      }
+      return;
+    }
     if (!session.pendingWords.length || !this.env.OPENROUTER_API_KEY) {
       if (!this.env.OPENROUTER_API_KEY && session.pendingWords.length) {
         session.lastError = "Chave OpenRouter não configurada";
         await this.write(session);
       }
-      // No paid inference when the environment is silent.
       return;
     }
 
@@ -299,8 +307,11 @@ export class AlexiosHub {
     const epoch = session.epoch;
     const oldContext = session.context;
     const oldPose = session.expressionId;
+    const startedAt = Date.now();
     session.pendingWords = [];
+    session.inferenceStartedAt = startedAt;
     await this.write(session);
+    await this.ctx.storage.setAlarm(startedAt + CONTEXT_INTERVAL_MS);
 
     try {
       const decision = await askModel(this.env, oldContext, renderWords(batch), oldPose);
@@ -316,7 +327,7 @@ export class AlexiosHub {
       }
       await this.write(current);
       this.wake();
-    } catch (error) {
+    } catch {
       const current = await this.read();
       if (current.epoch === epoch && current.desiredPower === "running") {
         current.pendingWords = [...batch, ...current.pendingWords].slice(-420);
@@ -325,7 +336,12 @@ export class AlexiosHub {
       }
     } finally {
       const next = await this.read();
-      if (next.desiredPower === "running" && next.pendingWords.length) {
+      if (next.inferenceStartedAt === startedAt) {
+        next.inferenceStartedAt = null;
+        await this.write(next);
+      }
+      if (next.desiredPower === "running" && next.pendingWords.length &&
+          !(await this.ctx.storage.getAlarm())) {
         await this.ctx.storage.setAlarm(Date.now() + CONTEXT_INTERVAL_MS);
       }
     }
