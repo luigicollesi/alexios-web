@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS public.alexios_sessions (
   context_text text NOT NULL DEFAULT 'Nenhuma informação confirmada sobre o ambiente.',
   pending_words jsonb NOT NULL DEFAULT '[]'::jsonb
     CHECK (jsonb_typeof(pending_words) = 'array'),
+  inference_words jsonb NOT NULL DEFAULT '[]'::jsonb
+    CHECK (jsonb_typeof(inference_words) = 'array'),
   capture jsonb,
   blocked_capture_id text,
   epoch bigint NOT NULL DEFAULT 0,
