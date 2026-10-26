@@ -1,0 +1,3 @@
+# Copie para worker/.dev.vars. NUNCA publique a chave verdadeira.
+ALEXIOS_AGENT_TOKEN="substitua-por-um-segredo-de-32-caracteres-ou-mais"
+OPENROUTER_API_KEY="sk-or-v1-coloque-sua-chave-aqui"
