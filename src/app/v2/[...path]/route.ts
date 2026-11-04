@@ -1,10 +1,13 @@
 import { requireAgentAuth } from "@/lib/server-bridge";
+import { after } from "next/server";
+import { analyzePendingV2 } from "@/lib/v2/inference-service";
+import { findInstance } from "@/lib/v2/agent-service";
 import { AgentError } from "@/lib/agent-db";
 import { pollV2, reportStateV2, uploadV2 } from "@/lib/v2/agent-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 30;
+export const maxDuration = 120;
 
 type Context = { params: Promise<{ path: string[] }> };
 
@@ -31,7 +34,20 @@ async function dispatch(request: Request, context: Context): Promise<Response> {
       });
     }
     if (request.method === "POST" && endpoint === "transcript") {
-      return Response.json(await uploadV2(await jsonBody(request)), {
+      const body = await jsonBody(request);
+      const outcome = await uploadV2(body);
+      if (outcome.acceptedWords > 0 && body && typeof body === "object" && "instanceId" in body) {
+        const agent = await findInstance(String((body as {instanceId: unknown}).instanceId));
+        if (agent) {
+          after(async () => {
+            // O processamento ocorre somente na Vercel, nunca no Python.
+            await new Promise((resolve) => setTimeout(resolve, 8_000));
+            try { await analyzePendingV2(agent.id); }
+            catch (error) { console.error("Analise Alexios V2:", error); }
+          });
+        }
+      }
+      return Response.json(outcome, {
         status: 202, headers: { "Cache-Control": "no-store" },
       });
     }
