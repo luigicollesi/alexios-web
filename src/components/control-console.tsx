@@ -10,8 +10,9 @@ import {
   type AlexiosStatus, type ExpressionId, type PowerAction,
 } from "@/lib/alexios";
 
-const API_STATUS = "/api/alexios/status";
-const API_POWER = "/api/alexios/power";
+const API_STATUS = "/api/v2/alexios/status";
+const API_AUTHORIZE = "/api/v2/alexios/authorize";
+const API_POWER = "/api/v2/alexios/power";
 const SCALE_BASE_WIDTH = 1600;
 const SCALE_BASE_HEIGHT = 900;
 
@@ -61,7 +62,7 @@ function Character({ expression, connected }: { expression: ExpressionId; connec
 
 export function ControlConsole() {
   const [scale, setScale] = useState(1);
-  const [token, setToken] = useState("");
+  const [authorized, setAuthorized] = useState(true);
   const [tokenDraft, setTokenDraft] = useState("");
   const [loginOpen, setLoginOpen] = useState(false);
   const [snapshot, setSnapshot] = useState<AlexiosStatus | null>(null);
@@ -80,7 +81,7 @@ export function ControlConsole() {
   }, []);
 
   useEffect(() => {
-    if (!token) return;
+    if (!authorized) return;
     const controller = new AbortController();
     let inFlight = false;
     let mounted = true;
@@ -90,17 +91,17 @@ export function ControlConsole() {
       inFlight = true;
       try {
         const response = await fetch(API_STATUS, {
-          headers: { Authorization: "Bearer " + token },
+          credentials: "same-origin",
           cache: "no-store",
           signal: controller.signal,
         });
         if (response.status === 401) {
           if (mounted) {
-            setToken("");
+            setAuthorized(false);
             setSnapshot(null);
             setApiAvailable(false);
             setPending(null);
-            setConnectionError("Chave inválida. Autorize o painel novamente.");
+            setConnectionError("Sessão expirada. Autorize uma instância novamente.");
             setLoginOpen(true);
           }
           return;
@@ -142,7 +143,7 @@ export function ControlConsole() {
       controller.abort();
       window.clearInterval(interval);
     };
-  }, [token]);
+  }, [authorized]);
 
   const powerView = derivePowerView(snapshot);
   const live = powerView !== "offline";
@@ -160,31 +161,46 @@ export function ControlConsole() {
     return () => window.clearTimeout(timer);
   }, [pending]);
 
-  const submitAccess = useCallback((event: FormEvent<HTMLFormElement>) => {
+  const submitAccess = useCallback(async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!tokenDraft.trim()) return;
     setConnectionError(null);
     setCommandError(null);
-    setSnapshot(null);
-    setApiAvailable(false);
-    setPending(null);
-    setToken(tokenDraft.trim());
-    setTokenDraft("");
-    setLoginOpen(false);
+    try {
+      const response = await fetch(API_AUTHORIZE, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ instanceId: tokenDraft.trim() }),
+      });
+      if (!response.ok) {
+        const body: unknown = await response.json().catch(() => null);
+        const message = body && typeof body === "object" && "error" in body
+          ? String((body as { error: unknown }).error)
+          : "Não foi possível autorizar esta instância.";
+        throw new Error(message);
+      }
+      setSnapshot(null);
+      setApiAvailable(false);
+      setPending(null);
+      setAuthorized(true);
+      setTokenDraft("");
+      setLoginOpen(false);
+    } catch (error) {
+      setConnectionError(error instanceof Error ? error.message : "Falha na autorização.");
+    }
   }, [tokenDraft]);
 
   const sendPower = useCallback(async () => {
-    if (!token || pending || (powerView !== "running" && powerView !== "stopped")) return;
+    if (!authorized || pending || (powerView !== "running" && powerView !== "stopped")) return;
     const action: PowerAction = powerView === "running" ? "stop" : "start";
     setPending(action);
     setCommandError(null);
     try {
       const response = await fetch(API_POWER, {
         method: "POST",
-        headers: {
-          Authorization: "Bearer " + token,
-          "Content-Type": "application/json",
-        },
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, requestId: crypto.randomUUID() }),
       });
       if (!response.ok) {
@@ -199,7 +215,7 @@ export function ControlConsole() {
       setPending(null);
       setCommandError(error instanceof Error ? error.message : "Erro ao enviar comando.");
     }
-  }, [pending, powerView, token]);
+  }, [authorized, pending, powerView]);
 
   const powerLabel = useMemo(() => {
     if (pending === "stop") return "ENCERRANDO";
@@ -210,7 +226,7 @@ export function ControlConsole() {
     return "SEM SINAL";
   }, [pending, powerView]);
 
-  const statusText = !token ? "NÃO AUTORIZADO" : apiAvailable ? "LINK AUTORIZADO" : "LINK INDISPONÍVEL";
+  const statusText = !authorized ? "NÃO AUTORIZADO" : apiAvailable ? "LINK AUTORIZADO" : "LINK INDISPONÍVEL";
   const stageStyle = { "--console-scale": scale } as CSSProperties;
 
   return (
@@ -239,7 +255,7 @@ export function ControlConsole() {
           </div>
           <button className="access-button" onClick={() => setLoginOpen(true)} type="button">
             <LockKeyhole size={15} strokeWidth={1.8} />
-            {token ? "ALTERAR ACESSO" : "AUTORIZAR ACESSO"}
+            {authorized ? "ALTERAR ACESSO" : "AUTORIZAR ACESSO"}
             <ArrowUpRight size={14} />
           </button>
         </header>
@@ -269,7 +285,7 @@ export function ControlConsole() {
             <span className="tech-kicker">CONNECTION PROTOCOL</span>
             <span>HTTPS / LONG-POLL</span>
             <div className="technical-line" /><div className="technical-line short" />
-            <span className="technical-id">LOCAL AGENT {snapshot?.agent.instanceId ?? "—"}</span>
+            <span className="technical-id">LOCAL AGENT {authorized ? "VINCULADO" : "—"}</span>
           </div>
         </aside>
 
@@ -359,9 +375,9 @@ export function ControlConsole() {
               <div className="modal-caption">SECURE ACCESS // ALEXIOS</div>
               <button type="button" className="modal-close" aria-label="Fechar" onClick={() => setLoginOpen(false)}><X size={19} /></button>
               <h2 id="access-title">VINCULAR PAINEL<span>.</span></h2>
-              <p>Informe a chave de acesso configurada no servidor para autorizar consultas e comandos. A chave permanece somente na memória desta aba.</p>
-              <label htmlFor="access-key">CHAVE DE ACESSO</label>
-              <input id="access-key" type="password" value={tokenDraft} onChange={(event) => setTokenDraft(event.target.value)} placeholder="••••••••••••••••" autoComplete="off" required autoFocus />
+              <p>Informe o identificador secreto ALEXIOS_INSTANCE_ID da instância conectada. Após a autorização, o navegador recebe uma sessão segura.</p>
+              <label htmlFor="access-key">ALEXIOS_INSTANCE_ID</label>
+              <input id="access-key" type="password" value={tokenDraft} onChange={(event) => setTokenDraft(event.target.value)} placeholder="alx_..." autoComplete="off" required autoFocus />
               <button type="submit" className="modal-submit"><LockKeyhole size={16} /> AUTORIZAR CONEXÃO <ArrowUpRight size={16} /></button>
               {connectionError && <span className="modal-error">{connectionError}</span>}
             </form>
