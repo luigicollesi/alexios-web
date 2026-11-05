@@ -1,5 +1,5 @@
 import "server-only";
-import { createHmac, randomUUID } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { AgentError, leaseIsFresh, numeric, query, type AgentSession, type Word } from "@/lib/agent-db";
 import { mergeWindow, parseTranscription } from "@/lib/merge-window";
 import { isValidInstanceId, isValidRunId, isValidCommandCursor } from "@/lib/v2/protocol";
@@ -181,11 +181,21 @@ export async function uploadV2(payload: unknown) {
     }
 
     const { capture, accepted } = mergeWindow(row.capture, input.captureId, input.windowIndex, input.words);
-    const pending: Word[] = [...row.pending_words, ...accepted].slice(-420);
+    // First V2 upload after a V3 session starts a clean legacy stream.
+    const prior = row.protocol_version === 3 ? [] : row.pending_words;
+    const pending: Word[] = [...prior, ...accepted].slice(-420);
     const updated = await query<{ updated: number | string; job_id: string | null }>(
       `WITH update_session AS (
         UPDATE public.alexios_sessions SET
           capture = $3::jsonb, pending_words = $4::jsonb,
+          protocol_version = 2,
+          epoch = CASE WHEN protocol_version = 3 THEN epoch + 1 ELSE epoch END,
+          inference_words = CASE WHEN protocol_version = 3
+            THEN '[]'::jsonb ELSE inference_words END,
+          inference_token = CASE WHEN protocol_version = 3
+            THEN NULL ELSE inference_token END,
+          inference_started_at = CASE WHEN protocol_version = 3
+            THEN NULL ELSE inference_started_at END,
           version = version + 1, updated_at = now()
         WHERE agent_id = $1::uuid AND run_id = $2::uuid AND version = $5
           AND power = 'running' AND desired_power = 'running'
