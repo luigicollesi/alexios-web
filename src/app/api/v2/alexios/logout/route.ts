@@ -4,14 +4,18 @@ import { errorResponse } from "@/lib/v2/http";
 import { AgentError } from "@/lib/agent-db";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 export async function POST(request: Request) {
   try {
     const origin = request.headers.get("origin");
-    if (origin && new URL(origin).origin !== new URL(request.url).origin) {
+    if (!origin || origin !== new URL(request.url).origin) {
       throw new AgentError(403, "Origem invalida.");
     }
     await logoutDashboard(request);
-    const response = NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
+    const response = NextResponse.json({ ok: true }, {
+      headers: { "Cache-Control": "no-store" },
+    });
     response.cookies.set(DASHBOARD_COOKIE, "", {
       httpOnly: true, secure: process.env.NODE_ENV === "production",
       sameSite: "strict", path: "/", maxAge: 0,
