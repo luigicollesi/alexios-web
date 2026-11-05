@@ -19,6 +19,7 @@ type JobState = {
   session_epoch: number | string;
   waiting: number | string;
   processing: boolean;
+  protocol_version: number;
 };
 
 /** Temporary backpressure, not a failed inference. Keep message pending. */
@@ -48,6 +49,7 @@ export async function analyzeJobV2(jobId: string) {
         version = version + 1, updated_at = now()
       WHERE s.agent_id = (SELECT agent_id FROM requested)
         AND s.epoch = (SELECT epoch FROM requested)
+        AND s.protocol_version = 2
         AND (s.inference_token IS NULL
           OR s.inference_started_at < now() - interval '120 seconds')
         AND (jsonb_array_length(s.pending_words) > 0
@@ -70,7 +72,8 @@ export async function analyzeJobV2(jobId: string) {
       `SELECT j.id, j.agent_id, j.status,
         j.epoch AS job_epoch, s.epoch AS session_epoch,
         jsonb_array_length(s.pending_words) + jsonb_array_length(s.inference_words) AS waiting,
-        s.inference_token IS NOT NULL AS processing
+        s.inference_token IS NOT NULL AS processing,
+        s.protocol_version
        FROM public.alexios_inference_jobs j
        JOIN public.alexios_sessions s ON s.agent_id = j.agent_id
        WHERE j.id = $1::uuid`, [jobId],
@@ -79,7 +82,7 @@ export async function analyzeJobV2(jobId: string) {
     if (!job || ["succeeded", "failed", "superseded"].includes(job.status)) {
       return { accepted: false, reason: "finished-or-missing" };
     }
-    if (String(job.job_epoch) !== String(job.session_epoch)) {
+    if (job.protocol_version !== 2 || String(job.job_epoch) !== String(job.session_epoch)) {
       await query(`UPDATE public.alexios_inference_jobs
         SET status = 'superseded', finished_at = now() WHERE id = $1::uuid`, [jobId]);
       return { accepted: false, reason: "superseded" };
@@ -109,6 +112,7 @@ export async function analyzeJobV2(jobId: string) {
           inference_words = '[]'::jsonb,
           version = version + 1, updated_at = now()
         WHERE agent_id = $1::uuid AND inference_token = $2::uuid AND epoch = $6
+          AND protocol_version = 2
         RETURNING session_id, context_text, expression_id
       ), logged AS (
         INSERT INTO public.alexios_inference_history(session_id, speech, pose, context_text)
