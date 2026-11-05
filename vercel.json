@@ -1,0 +1,16 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "npm install --no-audit --no-fund",
+  "functions": {
+    "src/app/api/queues/alexios-inference/route.ts": {
+      "maxDuration": 120,
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "alexios-inference-v2",
+          "retryAfterSeconds": 30
+        }
+      ]
+    }
+  }
+}
