@@ -34,7 +34,12 @@ export async function syncV3(raw: unknown) {
       RETURNING agent_id, last_accepted_sequence
     ), versioned AS (
       UPDATE public.alexios_sessions SET
-        protocol_version = 3, version = version + 1, updated_at = now(),
+        protocol_version = 3,
+        epoch = CASE WHEN protocol_version = 2 THEN epoch + 1 ELSE epoch END,
+        pending_words = '[]'::jsonb, inference_words = '[]'::jsonb,
+        inference_token = NULL, inference_started_at = NULL,
+        capture = NULL, last_error = NULL,
+        version = version + 1, updated_at = now(),
         character_frame = 'waiting_1', character_speaking_until = NULL
       WHERE agent_id = $1::uuid AND EXISTS (SELECT 1 FROM synced)
       RETURNING agent_id
