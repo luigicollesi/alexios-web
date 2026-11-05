@@ -2,6 +2,7 @@ import "server-only";
 import { createHmac, randomUUID } from "node:crypto";
 import { AgentError, leaseIsFresh, numeric, query, type AgentSession, type Word } from "@/lib/agent-db";
 import { mergeWindow, parseTranscription } from "@/lib/merge-window";
+import { isValidInstanceId, isValidRunId, isValidCommandCursor } from "@/lib/v2/protocol";
 
 const POLL_MS = 20_000;
 const LEASE_SECONDS = 45;
@@ -11,14 +12,14 @@ export type V2Session = AgentSession & { agent_id: string; run_id: string | null
 type Identity = { id: string };
 
 export function validateInstance(value: unknown): string {
-  if (typeof value !== "string" || !/^[A-Za-z0-9_-]{20,80}$/.test(value)) {
+  if (!isValidInstanceId(value)) {
     throw new AgentError(400, "Identificador da instancia invalido.");
   }
   return value;
 }
 
 export function validateRun(value: unknown): string {
-  if (typeof value !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+  if (!isValidRunId(value)) {
     throw new AgentError(400, "Identificador de execucao invalido.");
   }
   return value;
@@ -87,7 +88,7 @@ export async function pollV2(payload: unknown, signal: AbortSignal) {
   const instanceId = validateInstance(body.instanceId);
   const runId = validateRun(body.runId);
   const after = body.after;
-  if (typeof after !== "number" || !Number.isSafeInteger(after) || after < -1) {
+  if (!isValidCommandCursor(after)) {
     throw new AgentError(400, "Cursor de comandos invalido.");
   }
 
