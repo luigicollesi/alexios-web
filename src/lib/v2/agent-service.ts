@@ -195,11 +195,29 @@ export async function uploadV2(payload: unknown) {
         INSERT INTO public.alexios_inference_jobs(
           agent_id, epoch, source_capture_id, source_window_index
         )
-        SELECT $1::uuid, epoch, $6, $7 FROM update_session WHERE $8::boolean
+        SELECT $1::uuid, epoch, $6, $7
+        FROM update_session
+        WHERE $8::boolean AND NOT EXISTS (
+          SELECT 1 FROM public.alexios_inference_jobs j
+          WHERE j.agent_id = $1::uuid
+            AND j.epoch = update_session.epoch
+            AND j.status = 'pending'
+            -- Mensagens ficam invisíveis por 8s. Coalescer por apenas 7s
+            -- mantém uma margem segura antes do primeiro consumo.
+            AND j.created_at > now() - interval '7 seconds'
+        )
         ON CONFLICT DO NOTHING RETURNING id
       )
       SELECT (SELECT count(*) FROM update_session) AS updated,
-             (SELECT id FROM scheduled) AS job_id`,
+             COALESCE(
+               (SELECT id FROM scheduled),
+               (SELECT j.id FROM public.alexios_inference_jobs j
+                  JOIN update_session u ON u.epoch = j.epoch
+                 WHERE j.agent_id = $1::uuid
+                   AND j.status = 'pending'
+                   AND j.created_at > now() - interval '7 seconds'
+                 ORDER BY j.created_at DESC LIMIT 1)
+             ) AS job_id`,
       [agent.id, runId, JSON.stringify(capture), JSON.stringify(pending),
         row.version, input.captureId, input.windowIndex, accepted.length > 0],
     );

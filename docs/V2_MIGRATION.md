@@ -114,3 +114,22 @@ e reimplantar. Isso nao desfaz migracoes do banco, que sao aditivas.
 
 Apenas fazer merge de `feature/multi-instance-web-v2` em `main`
 **nao** ativa a interface V2 por padrao.
+
+## Backpressure e falhas do OpenRouter
+
+- As janelas aceitas continuam no Neon. Janelas criadas com menos de 7 segundos
+  de distância podem usar o mesmo trabalho de inferência enquanto estiver `pending`.
+  O consumidor só recebe a mensagem após o atraso de 8 segundos.
+- Somente uma inferência por instância possui o token de processamento. Mensagens
+  concorrentes permanecem na fila com retry de aproximadamente 100 segundos,
+  em vez de provocar tentativas contínuas.
+- A chamada principal ao OpenRouter mantém timeout de 90 segundos. Opcionalmente,
+  configurar `OPENROUTER_FALLBACK_MODEL` com um **modelo escolhido conscientemente**
+  permite uma segunda tentativa quando o primeiro modelo falha. Com fallback
+  configurado, os limites são 50 segundos para o principal e 55 para o fallback,
+  preservando margem para persistir a resposta na função de 120 segundos.
+- Um fallback pode pertencer a outro provedor e ter custo ou políticas de
+  tratamento de dados diferentes. Não configurar um modelo pago sem autorização.
+- Mensagens antigas de outro deployment podem continuar a aparecer nos logs
+  enquanto a fila antiga se esgota. O consumidor novo não deve apagar
+  manualmente palavras pendentes para silenciar erros.
