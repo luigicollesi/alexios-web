@@ -143,6 +143,15 @@ export async function reportStateV2(payload: unknown) {
   return { ok: true, power: rows[0].power };
 }
 
+async function windowJob(agentId: string, captureId: string, index: number): Promise<string | null> {
+  const result = await query<{ id: string }>(
+    `SELECT id FROM public.alexios_inference_jobs
+      WHERE agent_id = $1::uuid AND source_capture_id = $2 AND source_window_index = $3
+      LIMIT 1`, [agentId, captureId, index],
+  );
+  return result[0]?.id ?? null;
+}
+
 export async function uploadV2(payload: unknown) {
   const body = parseObject(payload);
   const input = parseTranscription(body);
@@ -151,7 +160,7 @@ export async function uploadV2(payload: unknown) {
   const agent = await findInstance(instanceId);
   if (!agent) throw new AgentError(409, "Instancia nao registrada.");
 
-  for (let attempt = 0; attempt < 7; attempt++) {
+  for (let attempt = 0; attempt < 7; attempt += 1) {
     const row = await sessionFor(agent.id);
     checkLease(row, runId);
     if (row.power !== "running" || row.desired_power !== "running") {
@@ -164,52 +173,80 @@ export async function uploadV2(payload: unknown) {
       throw new AgentError(409, "Primeira janela da captura ausente.");
     }
     if (row.capture?.id === input.captureId && input.windowIndex <= row.capture.index) {
-      return { acceptedWords: 0, windowIndex: input.windowIndex };
+      return {
+        acceptedWords: 0, windowIndex: input.windowIndex,
+        jobId: await windowJob(agent.id, input.captureId, input.windowIndex),
+      };
     }
+
     const { capture, accepted } = mergeWindow(row.capture, input.captureId, input.windowIndex, input.words);
     const pending: Word[] = [...row.pending_words, ...accepted].slice(-420);
-    const result = await query<{version:string|number}>(
-      `UPDATE public.alexios_sessions SET
-       capture = $3::jsonb, pending_words = $4::jsonb,
-       version = version + 1, updated_at = now()
-       WHERE agent_id = $1::uuid AND run_id = $2::uuid AND version = $5
-         AND power = 'running' AND desired_power = 'running'
-         AND last_poll_at >= now() - interval '${LEASE_SECONDS} seconds'
-       RETURNING version`,
-      [agent.id, runId, JSON.stringify(capture), JSON.stringify(pending), row.version],
+    const updated = await query<{ updated: number | string; job_id: string | null }>(
+      `WITH update_session AS (
+        UPDATE public.alexios_sessions SET
+          capture = $3::jsonb, pending_words = $4::jsonb,
+          version = version + 1, updated_at = now()
+        WHERE agent_id = $1::uuid AND run_id = $2::uuid AND version = $5
+          AND power = 'running' AND desired_power = 'running'
+          AND last_poll_at >= now() - interval '45 seconds'
+        RETURNING epoch
+      ), scheduled AS (
+        INSERT INTO public.alexios_inference_jobs(
+          agent_id, epoch, source_capture_id, source_window_index
+        )
+        SELECT $1::uuid, epoch, $6, $7 FROM update_session WHERE $8::boolean
+        ON CONFLICT DO NOTHING RETURNING id
+      )
+      SELECT (SELECT count(*) FROM update_session) AS updated,
+             (SELECT id FROM scheduled) AS job_id`,
+      [agent.id, runId, JSON.stringify(capture), JSON.stringify(pending),
+        row.version, input.captureId, input.windowIndex, accepted.length > 0],
     );
-    if (result[0]) return { acceptedWords: accepted.length, windowIndex: input.windowIndex };
+    if (Number(updated[0]?.updated ?? 0) === 1) {
+      return {
+        acceptedWords: accepted.length, windowIndex: input.windowIndex,
+        jobId: updated[0]?.job_id ?? (accepted.length > 0
+          ? await windowJob(agent.id, input.captureId, input.windowIndex) : null),
+      };
+    }
   }
   throw new AgentError(409, "Concorrencia na transcricao; tente outra janela.");
 }
 
 export async function powerV2(agentId: string, action: "start" | "stop", requestId: string) {
-  const row = await sessionFor(agentId);
-  if (!connected(row)) throw new AgentError(409, "Instancia desconectada.");
   const desired = action === "start" ? "running" : "stopped";
   const expected = action === "start" ? "stopped" : "running";
-  const changed = await query<{session_id:string}>(
-    `UPDATE public.alexios_sessions SET
-       desired_power = $2, command_seq = command_seq + 1,
-       epoch = epoch + 1,
-       pending_words = '[]'::jsonb, inference_words = '[]'::jsonb,
-       capture = NULL,
-       blocked_capture_id = CASE WHEN $2 = 'stopped' THEN capture->>'id' ELSE blocked_capture_id END,
-       inference_token = NULL, inference_started_at = NULL,
-       expression_id = CASE WHEN $2 = 'stopped' THEN 'idle' ELSE expression_id END,
-       version = version + 1, updated_at = now()
-     WHERE agent_id = $1::uuid AND power = $3 AND desired_power <> $2
-       AND last_poll_at >= now() - interval '${LEASE_SECONDS} seconds'
-     RETURNING session_id`,
-    [agentId, desired, expected],
+  const rows = await query<{ accepted: boolean }>(
+    `WITH changed AS (
+      UPDATE public.alexios_sessions SET
+        desired_power = $2,
+        command_seq = command_seq + 1,
+        capture = NULL,
+        blocked_capture_id = CASE WHEN $2 = 'stopped'
+            THEN capture->>'id' ELSE blocked_capture_id END,
+        version = version + 1, updated_at = now()
+      WHERE agent_id = $1::uuid AND power = $3 AND desired_power <> $2
+        AND last_poll_at >= now() - interval '45 seconds'
+        AND NOT EXISTS (SELECT 1 FROM public.alexios_power_requests
+                        WHERE request_id = $4::uuid)
+      RETURNING session_id
+    ), receipt AS (
+      INSERT INTO public.alexios_power_requests(request_id, session_id, action)
+      SELECT $4::uuid, session_id, $5 FROM changed
+      ON CONFLICT (request_id) DO NOTHING RETURNING request_id
+    )
+    SELECT EXISTS(SELECT 1 FROM receipt) AS accepted`,
+    [agentId, desired, expected, requestId, action],
   );
-  if (!changed.length) throw new AgentError(409, "Estado mudou ou comando indisponivel.");
-  await query(
-    `INSERT INTO public.alexios_power_requests(request_id, session_id, action)
-     VALUES ($1::uuid, $2, $3) ON CONFLICT DO NOTHING`,
-    [requestId, changed[0].session_id, action],
+  if (rows[0]?.accepted) return { accepted: true, requestId };
+  const existing = await query<{ action: string }>(
+    `SELECT r.action FROM public.alexios_power_requests r
+     JOIN public.alexios_sessions s ON s.session_id = r.session_id
+     WHERE r.request_id = $1::uuid AND s.agent_id = $2::uuid`,
+    [requestId, agentId],
   );
-  return { accepted: true, requestId };
+  if (existing[0]?.action === action) return { accepted: true, requestId };
+  throw new AgentError(409, "Estado mudou ou comando indisponivel.");
 }
 
 export async function statusV2(agentId: string) {
