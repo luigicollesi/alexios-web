@@ -187,16 +187,16 @@ async function advance(
         last_ai_at = CASE WHEN $8::boolean THEN s.last_ai_at ELSE now() END,
         last_error = NULL, version = version + 1, updated_at = now()
       FROM moved
-      WHERE s.agent_id = moved.agent_id
+      WHERE s.agent_id = moved.agent_id AND s.protocol_version = 3
       RETURNING s.agent_id
     ), finished AS (
       UPDATE public.alexios_v3_events SET
         status = CASE
-          WHEN $8::boolean THEN 'obsolete'
+          WHEN $8::boolean OR NOT EXISTS (SELECT 1 FROM persisted) THEN 'obsolete'
           ELSE 'processed' END,
         processed_at = now(), last_error = NULL
       WHERE event_id = $13::uuid
-        AND agent_id IN (SELECT agent_id FROM persisted)
+        AND agent_id IN (SELECT agent_id FROM moved)
       RETURNING event_id
     )
     SELECT event_id FROM finished`,
