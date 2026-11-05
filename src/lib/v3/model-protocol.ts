@@ -23,7 +23,7 @@ function parseJson(raw: unknown): Record<string, unknown> {
 }
 function parseVisual(v: Record<string, unknown>): ObserveDecision {
   if (typeof v.context !== "string" ||
-      v.context.length > 6000 ||
+      !v.context.trim() || v.context.length > 6000 ||
       (v.stance !== "crossed-arm" && v.stance !== "hand-in-pocket") ||
       (v.waitingVariant !== 1 && v.waitingVariant !== 2)) {
     throw new Error("Contexto ou postura inválida na resposta da IA.");
