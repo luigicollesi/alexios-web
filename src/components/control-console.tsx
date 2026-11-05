@@ -156,7 +156,7 @@ export function ControlConsole() {
 
   const powerView = derivePowerView(snapshot);
   const live = powerView !== "offline";
-  const expression = live ? (snapshot?.core.expressionId ?? "idle") : "idle";
+  const expression = snapshot?.core.expressionId ?? "idle";
   const labels = statusCopy(powerView);
 
   useEffect(() => {
@@ -342,7 +342,7 @@ export function ControlConsole() {
           </div>
           <div className="panel-metrics right-metrics">
             <div className="metric-row"><span><Headphones size={14} /> VOZ / ESCUTA</span><strong>{powerView === "running" ? "DISPONÍVEL" : "--"}</strong></div>
-            <div className="metric-row"><span><Volume2 size={14} /> EXPRESSÃO</span><strong>{live ? EXPRESSION_LABELS[expression] : "--"}</strong></div>
+            <div className="metric-row"><span><Volume2 size={14} /> EXPRESSÃO</span><strong>{snapshot ? EXPRESSION_LABELS[expression] : "--"}</strong></div>
             <div className="metric-row"><span><Power size={14} /> CORE POWER</span><strong>{snapshot?.core.power.toUpperCase() ?? "UNKNOWN"}</strong></div>
           </div>
           <section className="speech-log" aria-label="Última fala do Alexios" aria-live="polite">
