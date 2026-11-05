@@ -12,22 +12,24 @@ function cookieHash(token: string): string {
 }
 
 export async function authorizeDashboard(instanceId: unknown, source: string) {
-  // Hashes from the network address are kept only for rate-limiting.
+  // Atomic rolling-window counters prevent concurrent guessing from bypassing the limit.
   const sourceHash = keyedDigest("login-source:" + source);
-  const counts = await query<{attempts:string|number}>(
-    `SELECT count(*) AS attempts FROM public.alexios_authorization_attempts
-      WHERE source_hash = $1 AND created_at > now() - interval '5 minutes'`,
+  const attempts = await query<{ attempts: number | string }>(
+    `INSERT INTO public.alexios_auth_rate_limits(source_hash, attempts, window_started_at)
+      VALUES ($1, 1, now())
+      ON CONFLICT (source_hash) DO UPDATE SET
+        attempts = CASE WHEN alexios_auth_rate_limits.window_started_at <
+          now() - interval '5 minutes'
+          THEN 1 ELSE alexios_auth_rate_limits.attempts + 1 END,
+        window_started_at = CASE WHEN alexios_auth_rate_limits.window_started_at <
+          now() - interval '5 minutes'
+          THEN now() ELSE alexios_auth_rate_limits.window_started_at END
+      RETURNING attempts`,
     [sourceHash],
   );
-  if (Number(counts[0]?.attempts ?? 0) >= 10) {
+  if (Number(attempts[0]?.attempts ?? 0) > 10) {
     throw new AgentError(429, "Muitas tentativas de acesso. Tente novamente depois.");
   }
-  await query(
-    `INSERT INTO public.alexios_authorization_attempts (source_hash) VALUES ($1)`,
-    [sourceHash],
-  );
-
-  // Use a single error message; do not allow instance enumeration.
   try {
     if (typeof instanceId !== "string") throw new Error("missing");
     const found = await findInstance(instanceId);
@@ -37,7 +39,7 @@ export async function authorizeDashboard(instanceId: unknown, source: string) {
 
     const token = randomBytes(32).toString("hex");
     await query(
-      `INSERT INTO public.alexios_dashboard_sessions (session_hash, agent_id, expires_at)
+      `INSERT INTO public.alexios_dashboard_sessions(session_hash, agent_id, expires_at)
         VALUES ($1, $2::uuid, now() + interval '7 days')`,
       [cookieHash(token), found.id],
     );
