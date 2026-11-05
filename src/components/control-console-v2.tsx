@@ -7,7 +7,7 @@ import {
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import {
   derivePowerView, EXPRESSION_LABELS, normalizeStatus,
-  type AlexiosStatus, type ExpressionId, type PowerAction,
+  type AlexiosStatus, type ExpressionId, type PowerAction, type CharacterVisual,
 } from "@/lib/alexios";
 
 const API_STATUS = "/api/v2/alexios/status";
@@ -37,11 +37,14 @@ function statusCopy(view: ReturnType<typeof derivePowerView>) {
   }
 }
 
-function Character({ expression, connected }: { expression: ExpressionId; connected: boolean }) {
-  const source = "/characters/" + expression + ".png";
+function Character({
+  expression, connected, visual,
+}: { expression: ExpressionId; connected: boolean; visual?: CharacterVisual }) {
+  const source = visual?.src ?? "/characters/stand/hand-in-pocket/waiting_1.png";
+  const fallback = "/characters/stand/hand-in-pocket/waiting_1.png";
   return (
     <div className={"character-slot " + (connected ? "is-connected" : "is-disconnected")}>
-      {/* The SVG is an original placeholder. Add transparent full-body PNGs to public/characters. */}
+      {/* V3 images: two stances and four frames, with an existing PNG fallback. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         key={source}
@@ -51,9 +54,7 @@ function Character({ expression, connected }: { expression: ExpressionId; connec
         draggable={false}
         onError={(event) => {
           const image = event.currentTarget;
-          if (!image.src.endsWith("/characters/placeholder.svg")) {
-            image.src = "/characters/placeholder.svg";
-          }
+          if (!image.src.endsWith(fallback)) image.src = fallback;
         }}
       />
       <div className="character-shadow" aria-hidden="true" />
@@ -323,7 +324,7 @@ export function ControlConsoleV2() {
           <div className="orbit-crosshair orbit-crosshair-l" aria-hidden="true">+</div>
           <div className="orbit-crosshair orbit-crosshair-r" aria-hidden="true">+</div>
           <div className="figure-glow" aria-hidden="true" />
-          <Character expression={expression} connected={live} />
+          <Character expression={expression} connected={live} visual={snapshot?.core.character} />
           <div className="figure-floor" aria-hidden="true" />
           <div className="hero-data hero-data-left"><span>FIG. A-01</span><span>HUMANOID INTERFACE</span></div>
           <div className="hero-data hero-data-right"><span>COORD / 00.00</span><span>VISUAL SYSTEM ONLINE</span></div>
