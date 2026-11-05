@@ -28,6 +28,11 @@ export interface AgentSession {
   inference_started_at: string | null;
   last_ai_at: string | null;
   last_error: string | null;
+  protocol_version: number;
+  character_stance: "crossed-arm" | "hand-in-pocket";
+  character_waiting_variant: number;
+  character_frame: "listening" | "speaking" | "waiting_1" | "waiting_2";
+  character_speaking_until: string | null;
 }
 
 export class AgentError extends Error {
