@@ -1,6 +1,13 @@
 export type CorePower = "running" | "stopped" | "starting" | "stopping" | "unknown";
 export type ExpressionId = "idle" | "listening" | "thinking" | "speaking";
 export type PowerAction = "start" | "stop";
+export type CharacterStance = "crossed-arm" | "hand-in-pocket";
+export type CharacterFrame = "listening" | "speaking" | "waiting_1" | "waiting_2";
+export interface CharacterVisual {
+  stance: CharacterStance;
+  frame: CharacterFrame;
+  src: string;
+}
 
 export interface AlexiosStatus {
   agent: {
@@ -15,6 +22,8 @@ export interface AlexiosStatus {
     speech: { seq: number; text: string; at: string | null };
     lastAiAt: string | null;
     lastError: string | null;
+    character: CharacterVisual;
+    protocolVersion: 2 | 3;
   };
   receivedAt: string;
 }
@@ -54,6 +63,12 @@ export function normalizeStatus(payload: unknown, now = Date.now()): AlexiosStat
       : "idle";
 
   const speech = object(core.speech);
+  const character = object(core.character);
+  const stance: CharacterStance =
+    character.stance === "crossed-arm" ? "crossed-arm" : "hand-in-pocket";
+  const frame: CharacterFrame =
+    character.frame === "listening" || character.frame === "speaking" ||
+    character.frame === "waiting_2" ? character.frame : "waiting_1";
   const seq = typeof speech.seq === "number" && Number.isSafeInteger(speech.seq) && speech.seq >= 0 ? speech.seq : 0;
 
   return {
@@ -72,6 +87,11 @@ export function normalizeStatus(payload: unknown, now = Date.now()): AlexiosStat
       },
       lastAiAt: typeof core.lastAiAt === "string" ? core.lastAiAt : null,
       lastError: typeof core.lastError === "string" ? core.lastError.slice(0, 180) : null,
+      character: {
+        stance, frame,
+        src: "/characters/stand/" + stance + "/" + frame + ".png",
+      },
+      protocolVersion: core.protocolVersion === 3 ? 3 : 2,
     },
     receivedAt: new Date(now).toISOString(),
   };
