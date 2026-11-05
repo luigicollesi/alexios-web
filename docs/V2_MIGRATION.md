@@ -96,3 +96,21 @@ O workflow `.github/workflows/validate-v2.yml` inclui essas verificacoes.
 A integracao final deve testar **dois agentes simultaneos**, isolamento do painel, liga/desliga, expiracao da presenca (45 s), retries, fila e OpenRouter.
 
 A URL publica `https://alexios-web.vercel.app` permanece em `main` ate aprovacao dos testes, migracao do Neon de producao e deploy coordenado com Python V2.
+
+
+## Ativacao gradual apos merge na main
+
+A `main` inclui os dois painéis. Por padrao, `ALEXIOS_WEB_V2_ENABLED` ausente
+ou diferente de `true` preserva o painel /v1 e o Python atual em producao.
+
+Para habilitar o painel V2, depois de aplicar as migrations e configurar
+`ALEXIOS_INSTANCE_HASH_KEY` em Production, e depois de atualizar o Python:
+- Adicionar `ALEXIOS_WEB_V2_ENABLED=true` nas variaveis da Vercel Production.
+- Criar um novo deployment de producao.
+- Testar autorizacao pelo `ALEXIOS_INSTANCE_ID`, captura, long polling e IA.
+
+Para rollback imediato da interface, definir `ALEXIOS_WEB_V2_ENABLED=false`
+e reimplantar. Isso nao desfaz migracoes do banco, que sao aditivas.
+
+Apenas fazer merge de `feature/multi-instance-web-v2` em `main`
+**nao** ativa a interface V2 por padrao.
