@@ -271,16 +271,34 @@ export async function powerV2(agentId: string, action: "start" | "stop", request
 export async function statusV2(agentId: string) {
   const row = await sessionFor(agentId);
   const isConnected = connected(row);
+  const v3 = row.protocol_version === 3;
+  const stance = row.character_stance === "crossed-arm" ? "crossed-arm" : "hand-in-pocket";
+  const variant = row.character_waiting_variant === 2 ? 2 : 1;
+  const waiting = variant === 2 ? "waiting_2" : "waiting_1";
+  const speaking = row.character_speaking_until &&
+    Date.parse(row.character_speaking_until) > Date.now();
+  const frame = !isConnected || row.power === "stopped" ? waiting
+    : v3
+      ? row.character_frame === "speaking" && !speaking ? waiting : row.character_frame
+      : row.expression_id === "speaking" ? "speaking"
+      : row.expression_id === "listening" ? "listening" : waiting;
+  const expression = v3
+    ? frame === "speaking" ? "speaking" : frame === "listening" ? "listening" : "idle"
+    : row.expression_id;
   return {
     agent: {
       connected: isConnected,
       pollingActive: isConnected,
       lastPollAt: row.last_poll_at,
-      instanceId: null, // Nunca expor o segredo no navegador.
+      instanceId: null, // Never expose the access secret in the browser.
     },
     core: {
       power: row.power,
-      expressionId: row.expression_id,
+      expressionId: expression,
+      character: {
+        stance, frame, src: "/characters/stand/" + stance + "/" + frame + ".png",
+      },
+      protocolVersion: v3 ? 3 : 2,
       speech: {
         seq: numeric(row.speech_seq),
         text: row.speech_text,
