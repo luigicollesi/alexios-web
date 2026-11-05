@@ -51,23 +51,49 @@ export function modelMessages(oldContext: string, currentPose: AgentPose, words:
 export async function askModel(oldContext: string, currentPose: AgentPose, words: Word[]): Promise<Decision> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error("OPENROUTER_API_KEY não configurada.");
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": "https://alexios-web.vercel.app",
-      "X-Title": "Alexios Ambient Assistant",
-    },
-    body: JSON.stringify({
-      model: process.env.OPENROUTER_MODEL || "nvidia/nemotron-3-ultra-550b-a55b:free",
-      messages: modelMessages(oldContext, currentPose, words),
-      stream: false, temperature: 0.3, max_tokens: 650,
-    }),
-    signal: AbortSignal.timeout(90_000),
-  });
-  if (!response.ok) throw new Error(`OpenRouter HTTP ${response.status}`);
-  const data: unknown = await response.json();
-  const result = data as { choices?: { message?: { content?: unknown } }[] };
-  return parseDecision(result.choices?.[0]?.message?.content);
+
+  const primary = process.env.OPENROUTER_MODEL || "nvidia/nemotron-3-ultra-550b-a55b:free";
+  // Optional fallback. Not configured by default: never switch to a paid model implicitly.
+  const secondary = process.env.OPENROUTER_FALLBACK_MODEL?.trim();
+  const models = secondary && secondary !== primary ? [primary, secondary] : [primary];
+  let lastError: Error = new Error("Nenhum modelo respondeu.");
+
+  for (const [index, model] of models.entries()) {
+    // Stay within the queue function's 120-second runtime, including database writes.
+    const deadline = models.length === 1 ? 90_000 : index === 0 ? 50_000 : 55_000;
+    try {
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://alexios-web.vercel.app",
+          "X-Title": "Alexios Ambient Assistant",
+        },
+        body: JSON.stringify({
+          model,
+          messages: modelMessages(oldContext, currentPose, words),
+          stream: false, temperature: 0.3, max_tokens: 650,
+        }),
+        signal: AbortSignal.timeout(deadline),
+      });
+      if (!response.ok) {
+        const issue = new Error(`OpenRouter HTTP ${response.status} (${model})`);
+        // A second model cannot fix invalid credentials or an invalid payload.
+        if ([400, 401, 403].includes(response.status)) throw issue;
+        lastError = issue;
+        continue;
+      }
+      const data: unknown = await response.json();
+      const result = data as { choices?: { message?: { content?: unknown } }[] };
+      return parseDecision(result.choices?.[0]?.message?.content);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (/OpenRouter HTTP (400|401|403)/.test(lastError.message)) throw lastError;
+      if (lastError.name === "TimeoutError" || lastError.name === "AbortError") {
+        lastError = new Error(`OpenRouter excedeu ${deadline / 1000}s de espera (${model}).`);
+      }
+    }
+  }
+  throw lastError;
 }
