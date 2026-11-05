@@ -11,6 +11,16 @@
           "retryAfterSeconds": 30
         }
       ]
+    },
+    "src/app/api/queues/alexios-v3/route.ts": {
+      "maxDuration": 120,
+      "experimentalTriggers": [
+        {
+          "type": "queue/v2beta",
+          "topic": "alexios-events-v3",
+          "retryAfterSeconds": 30
+        }
+      ]
     }
   }
 }
