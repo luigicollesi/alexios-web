@@ -21,6 +21,14 @@ type JobState = {
   processing: boolean;
 };
 
+/** Temporary backpressure, not a failed inference. Keep message pending. */
+export class InferenceBusyError extends Error {
+  constructor() {
+    super("An inference for this instance is already running.");
+    this.name = "InferenceBusyError";
+  }
+}
+
 // The database, not the queue delivery, is the source of truth.
 // Duplicate messages and simultaneous workers may claim at most one inference.
 export async function analyzeJobV2(jobId: string) {
@@ -82,7 +90,7 @@ export async function analyzeJobV2(jobId: string) {
       return { accepted: false, reason: "already-drained" };
     }
     // Another worker owns the words. Retry rather than silently dropping this delivery.
-    throw new Error("Inference busy; queue will redeliver.");
+    throw new InferenceBusyError();
   }
 
   const data = claim[0];
