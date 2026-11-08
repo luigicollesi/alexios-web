@@ -72,8 +72,10 @@ export function fastFailureCode(error: unknown): string {
 }
 
 export class FastProviderHttpError extends Error {
-  constructor(readonly status: number) {
+  readonly status: number;
+  constructor(status: number) {
     super("OpenRouter fast HTTP " + status);
+    this.status = status;
     this.name = "FastProviderHttpError";
   }
 }
