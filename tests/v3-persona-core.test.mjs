@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {v3Messages, V3_POSE_ASSETS, MAX_CONTEXT_CHARS}
   from "../src/lib/v3/persona-core.ts";
 import {parseObserve} from "../src/lib/v3/model-protocol.ts";
+import {characterImage} from "../src/lib/v3/protocol.ts";
 import {readFileSync, statSync} from "node:fs";
 import {join} from "node:path";
 
@@ -48,6 +49,7 @@ test("core enumerates every PNG available in the repository", () => {
     assert.match(asset.path, /^\/characters\/stand\/(crossed-arm|hand-in-pocket)\/(listening|speaking|waiting_1|waiting_2)\.png$/);
     assert.ok(core.includes(asset.path));
     assert.ok(core.includes(asset.meaning));
+    assert.equal(characterImage(asset.stance, asset.frame), asset.path);
     const physical = join(process.cwd(), "public", asset.path.slice(1).replace(/^characters\//, "characters/"));
     assert.ok(statSync(physical).size > 8, asset.path);
     const header = readFileSync(physical).subarray(0,8);
