@@ -66,11 +66,11 @@ Modelos gratuitos não garantem o objetivo de 2s, mesmo sem reasoning.
 - Uma nova fala altera `activityEpoch` e invalida respostas em execução.
 - FIM/microfone parado invalidam respostas, com verificação novamente no
   instante do commit. Uma execução Python substituída também invalida.
-- A validade do piso rápido é de no máximo 6s desde o recebimento.
+- A validade do piso rápido é de no máximo 9s desde o recebimento.
   Uma requisição lenta não pode publicar depois disso.
 - A fila encerra o evento rápido em ordem, preservando `speech_seq`,
   `speech_text` e postura; apenas o fast lane pode publicar essa fala.
-- Se `after()` não executar, o worker marca `timed_out` após 8s.
+- Se `after()` não executar, o worker marca `timed_out` após 11s.
 - Novos turnos `OBSERVE` podem atualizar contexto em paralelo ao
   `RESPOND`, sem esperar duas inferências em série.
 - Não enviamos áudio bruto ao servidor, só transcrições.
@@ -107,3 +107,39 @@ Remover/desativar `ALEXIOS_V3_FAST_ENABLED` na Vercel e redeployar.
 Novos pisos voltam ao fluxo antigo, mantendo todas as tabelas e
 documentos V3. Os eventos antigos marcados `fast_status='legacy'`
 continuam usando a inferência antiga. Nenhuma tabela precisa ser apagada.
+
+## Diagnóstico OpenRouter: HTTP em vez de Error genérico
+
+A versão inicial registrava apenas `fast_error=Error` e encerrava o evento
+como `silent`, ocultando falhas HTTP. A correção registra códigos sanitizados
+como `http_400`, `http_402`, `http_404`, `http_429`,
+`model_timeout` ou `invalid_json`, sem gravar mensagens brutas do modelo.
+
+A chamada rápida padrão usa um payload mínimo e compatível:
+`reasoning.enabled=false` no Gemma 4; sem `provider.sort` e
+sem `response_format` para evitar filtros incompatíveis de roteamento.
+
+Se a chamada falhar, tenta `openrouter/free` sem configurações opcionais,
+mantendo as proteções de segurança. Modelo de fallback pode ser escolhido
+explicitamente em `ALEXIOS_V3_FAST_FALLBACK_MODEL`, mas **não** se deve
+configurar um modelo pago sem aprovação de gastos. A meta de 2 segundos
+continua relativa ao caminho primário bem-sucedido; o fallback pode
+demorar mais, mas não publica fala após 9 segundos nem após FIM/nova voz.
+
+Observabilidade na Vercel:
+
+```text
+[Alexios V3 FAST] modelo falhou
+  model: ...
+  reason: http_400 ou http_429
+  fallbackAvailable: true
+
+[Alexios V3 FAST] finalizado
+  published: true
+  modelIndex: 0 | 1
+  endToEndMs: ...
+```
+
+Erros 429 e 402 indicam limites e saldo da conta; nesse caso,
+trocar os parâmetros HTTP não resolve cotas. Verifique as regras atuais
+de limites do OpenRouter, sem expor as chaves da API.
