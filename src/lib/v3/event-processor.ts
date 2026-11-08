@@ -4,6 +4,7 @@ import {query, numeric} from "@/lib/agent-db";
 import {observeV3, respondV3} from "@/lib/v3/model-service";
 import type {Stance} from "@/lib/v3/protocol";
 import {floorRejectReason} from "@/lib/v3/floor-policy";
+import {FAST_WORKER_TIMEOUT_MS, fastFloorTerminal, type FastResponseStatus} from "@/lib/v3/fast-protocol";
 
 type Claimed = {
   event_id: string;
@@ -11,6 +12,7 @@ type Claimed = {
   run_id: string;
   sequence: string | number;
   event_type: "turn_end" | "turn_chunk" | "floor_open";
+  fast_status: FastResponseStatus;
   transcript: string | null;
   speaker_id: string | null;
   activity_epoch: string | number;
@@ -54,7 +56,7 @@ async function claim(eventId: string, token: string): Promise<Claimed | null> {
       RETURNING *
     )
     SELECT e.event_id, e.agent_id, e.run_id, e.sequence,
-      e.event_type, e.transcript, e.speaker_id, e.activity_epoch, e.received_at,
+      e.event_type, e.fast_status, e.transcript, e.speaker_id, e.activity_epoch, e.received_at,
       s.context_text, s.character_stance, s.character_waiting_variant,
       st.latest_activity, st.active_run_id, s.power, s.desired_power
     FROM marked e JOIN reserved st ON e.agent_id = st.agent_id
@@ -80,6 +82,47 @@ async function releaseClaim(agentId: string, eventId: string, token: string, iss
   await query(
     "UPDATE public.alexios_sessions SET last_error = $2 WHERE agent_id = $1::uuid",
     [agentId, issue.slice(0, 180)],
+  );
+}
+
+/** Close an already-decided fast floor without executing RESPOND again.
+ * This NEVER touches speech_seq, speech_text, the active avatar or memory.
+ */
+async function finalizeFastFloor(
+  job: Claimed, token: string,
+): Promise<boolean> {
+  const rows = await query<{event_id: string}>(
+    `WITH moved AS (
+      UPDATE public.alexios_v3_streams SET
+        last_processed_sequence = $3::bigint, processing_token = NULL,
+        processing_started_at = NULL, updated_at = now()
+      WHERE agent_id = $1::uuid AND processing_token = $2::uuid
+        AND last_processed_sequence + 1 = $3::bigint
+      RETURNING agent_id
+    ), finished AS (
+      UPDATE public.alexios_v3_events e SET
+        status = CASE WHEN e.fast_status IN ('published','silent')
+          THEN 'processed' ELSE 'obsolete' END,
+        processed_at = now(),
+        last_error = CASE WHEN e.fast_status IN ('published','silent')
+          THEN NULL ELSE COALESCE(e.fast_error, 'fast_response_expired') END
+      WHERE e.event_id = $4::uuid
+        AND e.agent_id IN (SELECT agent_id FROM moved)
+      RETURNING event_id
+    )
+    SELECT event_id FROM finished`,
+    [job.agent_id, token, numeric(job.sequence), job.event_id],
+  );
+  return Boolean(rows[0]);
+}
+
+async function expireStuckFastFloor(eventId: string): Promise<void> {
+  await query(
+    `UPDATE public.alexios_v3_events SET
+      fast_status = 'timed_out', fast_finished_at = now(),
+      fast_token = NULL, fast_error = 'fast_lane_deadline'
+    WHERE event_id = $1::uuid AND fast_status IN ('pending','running')`,
+    [eventId],
   );
 }
 
@@ -161,8 +204,16 @@ async function advance(
           AND s.protocol_version = 3
           AND now() - $7::timestamptz < interval '60 seconds'
           THEN now() + (LEAST(12, GREATEST(3, LENGTH($12::text) / 17)) * interval '1 second')
-          ELSE NULL END,
+          ELSE CASE WHEN s.character_speaking_until > now()
+              AND moved.activity_epoch = $6::bigint
+              THEN s.character_speaking_until
+              ELSE NULL END END,
         character_frame = CASE
+          WHEN $4::text <> 'floor_open'
+            AND s.character_speaking_until > now()
+            AND moved.activity_epoch = $6::bigint
+            AND s.character_frame = 'speaking'
+          THEN 'speaking'
           WHEN $4::text = 'floor_open' AND NOT $8::boolean
             AND $12::text <> ''
             AND moved.active_run_id = $5::uuid
@@ -314,6 +365,23 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
   const sequence = numeric(job.sequence);
   const latencyBeforeProcessingMs = Date.now() - Date.parse(job.received_at);
   try {
+    if (job.event_type === "floor_open" && job.fast_status !== "legacy") {
+      if (!fastFloorTerminal(job.fast_status)) {
+        const age = Date.now() - Date.parse(job.received_at);
+        if (age < FAST_WORKER_TIMEOUT_MS) {
+          throw new V3DeferredError();
+        }
+        // Background invocation disappeared or missed its deadline.
+        // Expire without ever letting the older queued inference speak.
+        await expireStuckFastFloor(job.event_id);
+      }
+      if (!await finalizeFastFloor(job, token)) throw new V3DeferredError();
+      console.info("[Alexios V3 FAST] cursor avançado", {
+        eventId, sequence, fastStatus: job.fast_status,
+      });
+      return {handled: true, reason: "fast-floor-complete"};
+    }
+
     const floorReason = job.event_type === "floor_open"
       ? floorInvalidReason(job) : null;
     if (floorReason) {
@@ -357,6 +425,22 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
     return {handled: true};
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
+    if (error instanceof V3DeferredError) {
+      // Expected: fast inference is completing in a separate function.
+      await query(
+        `WITH released AS (
+          UPDATE public.alexios_v3_streams SET
+            processing_token = NULL, processing_started_at = NULL, updated_at = now()
+          WHERE agent_id = $1::uuid AND processing_token = $2::uuid
+          RETURNING agent_id
+        )
+        UPDATE public.alexios_v3_events SET
+          status = 'pending', started_at = NULL
+        WHERE event_id = $3::uuid AND agent_id IN (SELECT agent_id FROM released)`,
+        [job.agent_id, token, job.event_id],
+      );
+      throw error;
+    }
     console.error("[Alexios V3] falha de processamento", {
       eventId, sequence, type: job.event_type, durationMs: Date.now() - startedAt,
       reason: msg.slice(0, 140),

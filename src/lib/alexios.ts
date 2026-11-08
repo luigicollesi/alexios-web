@@ -25,6 +25,8 @@ export type V3ConversationStatus = {
     sequence: number;
     status: string;
     reason: string | null;
+    fastStatus?: string;
+    fastModelMs?: number | null;
     receivedAt: string | null;
   };
 };
@@ -109,6 +111,10 @@ export function normalizeStatus(payload: unknown, now = Date.now()): AlexiosStat
         sequence: safeNumber(rawFloor.sequence),
         status: typeof rawFloor.status === "string" ? rawFloor.status.slice(0, 20) : "pending",
         reason: typeof rawFloor.reason === "string" ? rawFloor.reason.slice(0, 90) : null,
+        fastStatus: typeof rawFloor.fastStatus === "string"
+          ? rawFloor.fastStatus.slice(0, 20) : "legacy",
+        fastModelMs: typeof rawFloor.fastModelMs === "number" &&
+          Number.isFinite(rawFloor.fastModelMs) ? rawFloor.fastModelMs : null,
         receivedAt: typeof rawFloor.receivedAt === "string" ? rawFloor.receivedAt : null,
       } : null,
     } : null;

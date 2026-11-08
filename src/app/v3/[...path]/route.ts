@@ -1,3 +1,6 @@
+import {after} from "next/server";
+import {fastLaneEnabled} from "@/lib/v3/fast-protocol";
+import {processFastFloorV3} from "@/lib/v3/fast-response";
 import {send} from "@vercel/queue";
 import {requireAgentAuth} from "@/lib/server-bridge";
 import {AgentError} from "@/lib/agent-db";
@@ -29,7 +32,7 @@ export async function POST(request: Request, context: Context) {
         // A distinct delivery is safe: claim() and the Neon sequence are atomic.
         try {
           await send("alexios-events-v3", {eventId: result.recoveryEventId}, {
-            delaySeconds: 1,
+            delaySeconds: 0,
           });
           console.info("[Alexios V3] recuperação reativada", {
             eventId: result.recoveryEventId,
@@ -60,8 +63,29 @@ export async function POST(request: Request, context: Context) {
     // The DB is authoritative. The queue is a wake-up signal and can redeliver.
     // Retry of an accepted event reuses the same eventId and queue idempotency key.
     await send("alexios-events-v3", {eventId: ack.eventId}, {
-      idempotencyKey: ack.eventId, delaySeconds: 1,
+      idempotencyKey: ack.eventId, delaySeconds: 0,
     });
+    if (kind === "floor_open" && fastLaneEnabled()) {
+      // HTTP 202 immediately acknowledges durable intake. Inference runs
+      // after the response; the V3 queue remains a durable recovery path.
+      after(async () => {
+        await processFastFloorV3(ack.eventId);
+        // The queue's original floor delivery may have arrived too early
+        // and been deferred. Reawaken it so the Neon cursor does not
+        // stay stalled for the full retry interval.
+        try {
+          await send("alexios-events-v3", {eventId: ack.eventId}, {
+            idempotencyKey: "v3-fast-finished-" + ack.eventId,
+            delaySeconds: 0,
+          });
+        } catch (error) {
+          console.warn("[Alexios V3 FAST] nao foi possivel reativar cursor", {
+            eventId: ack.eventId,
+            reason: error instanceof Error ? error.name : "unknown",
+          });
+        }
+      });
+    }
     console.info("[Alexios V3] evento aceito", {
       kind, eventId: ack.eventId, duplicate: ack.duplicate,
     });

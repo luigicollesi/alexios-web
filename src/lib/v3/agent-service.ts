@@ -2,6 +2,7 @@ import "server-only";
 import { AgentError, query, numeric } from "@/lib/agent-db";
 import { connected, findInstance, sessionFor } from "@/lib/v2/agent-service";
 import { parseIdentity, parseActivity, parseV3Event, type IncomingEvent, type V3EventKind } from "@/lib/v3/protocol";
+import {fastLaneEnabled} from "@/lib/v3/fast-protocol";
 
 type Auth = {agentId: string; runId: string};
 
@@ -156,16 +157,18 @@ export async function acceptV3Event(raw: unknown, type: V3EventKind) {
     ), inserted AS (
       INSERT INTO public.alexios_v3_events
         (event_id, agent_id, run_id, sequence, event_type, activity_epoch,
-         turn_id, speaker_id, transcript, payload)
+         turn_id, speaker_id, transcript, payload, fast_status)
       SELECT $6::uuid, agent_id, $2::uuid, $3::bigint, $4, $5::bigint,
-        $7::text, $8::text, $9::text, $10::jsonb
+        $7::text, $8::text, $9::text, $10::jsonb,
+        CASE WHEN $4::text = 'floor_open' AND $11::boolean
+          THEN 'pending' ELSE 'legacy' END
       FROM accepted
       RETURNING event_id
     )
     SELECT event_id FROM inserted`,
     [agentId, runId, event.sequence, type, event.activityEpoch,
      event.eventId, event.turnId ?? null, event.speakerId ?? null,
-     event.transcript ?? null, JSON.stringify(payload)],
+     event.transcript ?? null, JSON.stringify(payload), fastLaneEnabled()],
   );
   if (!rows[0]) {
     throw new AgentError(409, "Sequência inválida, run substituído ou abertura obsoleta.");
