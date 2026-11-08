@@ -4,7 +4,7 @@ import {query, numeric} from "@/lib/agent-db";
 import {observeV3, respondV3} from "@/lib/v3/model-service";
 import {FRESH_FLOOR_TURNS_SQL, formatFreshFloorTurns, type FloorTurn}
   from "@/lib/v3/floor-turns";
-import type {Stance} from "@/lib/v3/protocol";
+import type {Stance, Frame} from "@/lib/v3/protocol";
 import {floorRejectReason} from "@/lib/v3/floor-policy";
 import {FAST_WORKER_TIMEOUT_MS, fastFloorTerminal, type FastResponseStatus} from "@/lib/v3/fast-protocol";
 
@@ -22,6 +22,7 @@ type Claimed = {
   context_text: string;
   character_stance: Stance;
   character_waiting_variant: number;
+  character_frame: Frame;
   latest_activity: string | number;
   active_run_id: string;
   power: string;
@@ -59,7 +60,7 @@ async function claim(eventId: string, token: string): Promise<Claimed | null> {
     )
     SELECT e.event_id, e.agent_id, e.run_id, e.sequence,
       e.event_type, e.fast_status, e.transcript, e.speaker_id, e.activity_epoch, e.received_at,
-      s.context_text, s.character_stance, s.character_waiting_variant,
+      s.context_text, s.character_stance, s.character_waiting_variant, s.character_frame,
       st.latest_activity, st.active_run_id, s.power, s.desired_power
     FROM marked e JOIN reserved st ON e.agent_id = st.agent_id
       JOIN public.alexios_sessions s ON s.agent_id = e.agent_id`,
@@ -388,6 +389,7 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
     const current = {
       context: job.context_text, stance: job.character_stance,
       waitingVariant: job.character_waiting_variant,
+      frame: job.character_frame,
     };
     const freshTurns = job.event_type === "floor_open"
       ? await recentTurnsForFloor(job) : null;
