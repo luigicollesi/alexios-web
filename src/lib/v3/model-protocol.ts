@@ -1,5 +1,6 @@
 /** Pure JSON contracts for V3 AI; no server-only imports. */
 import type {Stance} from "./protocol";
+import {MAX_CONTEXT_CHARS} from "./persona-core";
 
 export type ObserveDecision = {
   context: string;
@@ -31,7 +32,7 @@ function parseVisual(v: Record<string, unknown>): ObserveDecision {
     throw new Error("Contexto ou postura inválida na resposta da IA.");
   }
   return {
-    context: v.context.trim().slice(0, 3000),
+    context: v.context.trim().slice(0, MAX_CONTEXT_CHARS),
     stance: v.stance,
     waitingVariant: v.waitingVariant,
   };
@@ -63,7 +64,7 @@ export function fallbackObserve(input: {
 }): ObserveDecision {
   // Raw utterances are stored as events, never appended verbatim to semantic
   // memory. The next successful OBSERVE will generate a proper summary.
-  const context = input.context.trim().slice(-3000);
+  const context = input.context.trim().slice(-MAX_CONTEXT_CHARS);
   return {
     context: context || "Nenhuma informação confirmada sobre o ambiente.",
     stance: input.stance,
@@ -77,7 +78,7 @@ export function fallbackRespond(input: {
   context: string; stance: Stance; waitingVariant: number;
 }): RespondDecision {
   return {
-    context: input.context.trim().slice(-3000) || "Nenhuma informação confirmada sobre o ambiente.",
+    context: input.context.trim().slice(-MAX_CONTEXT_CHARS) || "Nenhuma informação confirmada sobre o ambiente.",
     stance: input.stance,
     waitingVariant: input.waitingVariant === 2 ? 2 : 1,
     shouldSpeak: false,
