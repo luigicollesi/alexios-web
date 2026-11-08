@@ -5,7 +5,7 @@ export type FastResponseStatus =
   | "silent" | "revoked" | "timed_out";
 
 import type {Stance} from "./protocol";
-import {MAX_CONTEXT_CHARS} from "./persona-core";
+import {MAX_CONTEXT_CHARS} from "./persona-core.ts";
 
 export type FastDecision = {
   context: string;
