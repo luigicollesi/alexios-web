@@ -82,3 +82,14 @@ test("legacy floors are not mistaken for fast-lane completion", () => {
     assert.equal(fastFloorTerminal(value),true);
   }
 });
+
+test("model output cannot cause unbounded rolling context", () => {
+  const longSummary = "a".repeat(2100);
+  const decision = parseFastDecision(complete({
+    context: longSummary,
+    shouldSpeak: false,
+    speech:"",
+  }));
+  assert.ok(decision.context.length <= 1200);
+  assert.equal(decision.shouldSpeak, false);
+});
