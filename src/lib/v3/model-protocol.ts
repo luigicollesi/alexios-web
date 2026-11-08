@@ -1,6 +1,6 @@
 /** Pure JSON contracts for V3 AI; no server-only imports. */
 import type {Stance} from "./protocol";
-import {MAX_CONTEXT_CHARS} from "./persona-core";
+import {MAX_CONTEXT_CHARS} from "./persona-core.ts";
 
 export type ObserveDecision = {
   context: string;
