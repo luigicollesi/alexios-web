@@ -2,6 +2,8 @@ import "server-only";
 import {randomUUID} from "node:crypto";
 import {query, numeric} from "@/lib/agent-db";
 import {observeV3, respondV3} from "@/lib/v3/model-service";
+import {FRESH_FLOOR_TURNS_SQL, formatFreshFloorTurns, type FloorTurn}
+  from "@/lib/v3/floor-turns";
 import type {Stance} from "@/lib/v3/protocol";
 import {floorRejectReason} from "@/lib/v3/floor-policy";
 import {FAST_WORKER_TIMEOUT_MS, fastFloorTerminal, type FastResponseStatus} from "@/lib/v3/fast-protocol";
@@ -149,13 +151,9 @@ async function advance(
     ), persisted AS (
       UPDATE public.alexios_sessions s SET
         context_text = CASE
-          WHEN $4::text = 'floor_open' AND NOT (
-            moved.active_run_id = $5::uuid
-            AND moved.activity_epoch = $6::bigint
-            AND s.power = 'running' AND s.desired_power = 'running'
-            AND s.protocol_version = 3
-            AND now() - $7::timestamptz < interval '60 seconds'
-          ) THEN s.context_text
+          -- Only OBSERVE may update the semantic memory. RESPOND consumes speech
+          -- but never turns previous questions into a new persistent context.
+          WHEN $4::text = 'floor_open' THEN s.context_text
           WHEN $8::boolean THEN s.context_text
           ELSE $9::text END,
         character_stance = CASE
@@ -305,29 +303,11 @@ async function advance(
   };
 }
 
-type RecentTurnRow = {
-  run_id: string;
-  speaker_id: string | null;
-  transcript: string | null;
-};
-
 async function recentTurnsForFloor(event: Claimed): Promise<string> {
-  const rows = await query<RecentTurnRow>(
-    `SELECT run_id, speaker_id, transcript
-     FROM public.alexios_v3_events
-     WHERE agent_id = $1::uuid
-       AND sequence < $2::bigint
-       AND event_type IN ('turn_end', 'turn_chunk')
-       AND status = 'processed'
-       AND received_at >= $3::timestamptz - interval '3 minutes'
-     ORDER BY sequence DESC LIMIT 4`,
-    [event.agent_id, numeric(event.sequence), event.received_at],
-  );
-  return rows.reverse().map((row) => {
-    const speaker = (row.speaker_id || "speaker_unknown").slice(0, 24);
-    return "[" + row.run_id.slice(0, 8) + "/" + speaker + "]: " +
-      (row.transcript || "").replace(/\s+/g, " ").trim().slice(0, 350);
-  }).join("\n").slice(-1600);
+  const rows = await query<FloorTurn>(FRESH_FLOOR_TURNS_SQL, [
+    event.agent_id, event.run_id, numeric(event.sequence), event.received_at,
+  ]);
+  return formatFreshFloorTurns(rows);
 }
 
 function floorInvalidReason(data: Claimed): string | null {
@@ -401,8 +381,14 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
       context: job.context_text, stance: job.character_stance,
       waitingVariant: job.character_waiting_variant,
     };
+    const freshTurns = job.event_type === "floor_open"
+      ? await recentTurnsForFloor(job) : null;
+    // A floor with no new speech is consumed silently, without another
+    // provider request or any opportunity to replay old questions.
     const decision = job.event_type === "floor_open"
-      ? await respondV3({...current, recentTurns: await recentTurnsForFloor(job)})
+      ? freshTurns
+        ? await respondV3({...current, recentTurns: freshTurns})
+        : {...current, shouldSpeak: false, speech: ""}
       : await observeV3({
           ...current,
           speakerId: job.run_id.slice(0, 8) + "/" + (job.speaker_id ?? "speaker_unknown"),
