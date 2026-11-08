@@ -48,3 +48,39 @@ export function parseRespond(raw: unknown): RespondDecision {
   const speech = value.shouldSpeak ? value.speech.trim().slice(0, 600) : "";
   return {...visual, shouldSpeak: Boolean(value.shouldSpeak && speech), speech};
 }
+
+
+/**
+ * Deterministic, bounded OBSERVE fallback. Never invents facts or speech.
+ * Context stays shared by instance; the label only identifies the speaker.
+ * Unlike an exception, this lets the next pending event continue.
+ */
+export function fallbackObserve(input: {
+  context: string; stance: Stance; waitingVariant: number;
+  speakerId?: string; transcript?: string;
+}): ObserveDecision {
+  const label = (input.speakerId ?? "speaker_unknown")
+    .replace(/[^a-zA-Z0-9_/-]/g, "").slice(0, 48);
+  const utterance = (input.transcript ?? "").replace(/\s+/g, " ").trim().slice(0, 1200);
+  const entry = utterance ? `[Transcrição de ${label}: ${utterance}]` : "";
+  const previous = input.context.trim();
+  const context = [previous, entry].filter(Boolean).join("\n").slice(-3000).trim();
+  return {
+    context: context || "Nenhuma informação confirmada sobre o ambiente.",
+    stance: input.stance,
+    waitingVariant: input.waitingVariant === 2 ? 2 : 1,
+  };
+}
+
+/** On model failure, never fabricate or publish a response to an open floor. */
+export function fallbackRespond(input: {
+  context: string; stance: Stance; waitingVariant: number;
+}): RespondDecision {
+  return {
+    context: input.context.trim().slice(-3000) || "Nenhuma informação confirmada sobre o ambiente.",
+    stance: input.stance,
+    waitingVariant: input.waitingVariant === 2 ? 2 : 1,
+    shouldSpeak: false,
+    speech: "",
+  };
+}
