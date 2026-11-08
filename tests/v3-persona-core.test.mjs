@@ -6,6 +6,7 @@ const input = {
   context:"O usuário usa PostgreSQL no projeto; já perguntou quanto é 2+2.",
   stance:"crossed-arm",
   waitingVariant:2,
+  frame:"listening",
   freshSpeech:"[speaker_01] Qual banco estamos usando?",
   responseWindow:true,
 };
