@@ -31,6 +31,17 @@ function floorSummary(status: AlexiosStatus): string {
   const convo = status.conversation;
   if (!convo) return "Aguardando a primeira fala.";
   const last = convo.lastFloor;
+  if (last?.fastStatus === "published") {
+    return "Resposta rápida publicada" +
+      (last.fastModelMs !== null && last.fastModelMs !== undefined
+        ? ` · modelo ${last.fastModelMs} ms` : "") + ".";
+  }
+  if (last?.fastStatus === "running") return "Gerando resposta rápida...";
+  if (last?.fastStatus === "pending") return "Preparando resposta rápida...";
+  if (last?.fastStatus === "silent") return "Modelo rápido optou pelo silêncio.";
+  if (last?.fastStatus === "revoked" || last?.fastStatus === "timed_out") {
+    return "Resposta rápida cancelada ou fora do prazo.";
+  }
   if (convo.pendingCount > 0) {
     return `Analisando ${convo.pendingCount} evento(s); último processado #${convo.processedSequence}.`;
   }
