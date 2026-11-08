@@ -15,7 +15,7 @@ Fluxo:
 3. O caminho rápido lê contexto atual + até quatro transcrições recentes
    diretamente do Neon, incluindo eventos ainda pendentes de `OBSERVE`.
 4. Chama o OpenRouter com `reasoning.enabled=false`,
-   `provider.sort='latency'`, `max_tokens=160`, sem streaming.
+   `max_tokens=180`, sem streaming. O roteamento é escolhido pelo OpenRouter.
    Apenas `shouldSpeak` e `speech` são permitidos no JSON.
 5. O commit da fala verifica novamente **runId, activityEpoch,
    versão de protocolo, power, FIM, lease do Python e prazo**. Se qualquer
@@ -44,7 +44,7 @@ Depois do merge na `main` e do deployment `READY`, configurar:
 | Env var | Valor | Efeito |
 |---|---|---|
 | `ALEXIOS_V3_FAST_ENABLED` | `true` | Ativa o novo caminho rápido somente para floors futuros |
-| `ALEXIOS_V3_FAST_MODEL` | Opcional | Padrão: `google/gemma-4-26b-a4b-it:free`. Pode escolher outro modelo |
+| `OPENROUTER_MODEL` | `nvidia/nemotron-3.5-lightning:free` | Modelo compartilhado pelo OBSERVE e Fast Response |\n| `ALEXIOS_V3_FAST_MODEL` | Não necessária | Override opcional apenas para Fast Response |\n| `ALEXIOS_V3_FAST_FALLBACK_MODEL` | Não necessária | Adicionar apenas se quiser um fallback diferente |
 | `ALEXIOS_V3_FAST_MODEL_TIMEOUT_MS` | `2600` (padrão) | Timeout de inferência, limitado entre 1100 e 4500 ms |
 | `OPENROUTER_MODEL` | Existente | Continua responsável pelo `OBSERVE`; não foi alterado |
 | `OPENROUTER_API_KEY` | Existente | Autentica chamadas ao OpenRouter |
