@@ -57,6 +57,9 @@ export function fastFailureCode(error: unknown): string {
   if (error instanceof FastProviderHttpError) {
     return "http_" + error.status;
   }
+  if (error instanceof Error && /OPENROUTER_API_KEY ausente/.test(error.message)) {
+    return "missing_api_key";
+  }
   if (error instanceof SyntaxError) return "invalid_json";
   if (error instanceof Error &&
       (error.name === "TimeoutError" || error.name === "AbortError")) {
