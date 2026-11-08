@@ -5,6 +5,8 @@ export type ObserveDecision = {
   context: string;
   stance: Stance;
   waitingVariant: 1 | 2;
+  /** Recovery without a trustworthy LLM decision; never authorizes speech. */
+  degraded?: boolean;
 };
 export type RespondDecision = ObserveDecision & {
   shouldSpeak: boolean;
@@ -69,6 +71,7 @@ export function fallbackObserve(input: {
     context: context || "Nenhuma informação confirmada sobre o ambiente.",
     stance: input.stance,
     waitingVariant: input.waitingVariant === 2 ? 2 : 1,
+    degraded: true,
   };
 }
 
@@ -82,5 +85,6 @@ export function fallbackRespond(input: {
     waitingVariant: input.waitingVariant === 2 ? 2 : 1,
     shouldSpeak: false,
     speech: "",
+    degraded: true,
   };
 }
