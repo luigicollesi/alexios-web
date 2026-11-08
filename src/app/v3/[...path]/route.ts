@@ -68,7 +68,23 @@ export async function POST(request: Request, context: Context) {
     if (kind === "floor_open" && fastLaneEnabled()) {
       // HTTP 202 immediately acknowledges durable intake. Inference runs
       // after the response; the V3 queue remains a durable recovery path.
-      after(async () => { await processFastFloorV3(ack.eventId); });
+      after(async () => {
+        await processFastFloorV3(ack.eventId);
+        // The queue's original floor delivery may have arrived too early
+        // and been deferred. Reawaken it so the Neon cursor does not
+        // stay stalled for the full retry interval.
+        try {
+          await send("alexios-events-v3", {eventId: ack.eventId}, {
+            idempotencyKey: "v3-fast-finished-" + ack.eventId,
+            delaySeconds: 0,
+          });
+        } catch (error) {
+          console.warn("[Alexios V3 FAST] nao foi possivel reativar cursor", {
+            eventId: ack.eventId,
+            reason: error instanceof Error ? error.name : "unknown",
+          });
+        }
+      });
     }
     console.info("[Alexios V3] evento aceito", {
       kind, eventId: ack.eventId, duplicate: ack.duplicate,
