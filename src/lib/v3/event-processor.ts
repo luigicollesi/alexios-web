@@ -155,7 +155,7 @@ async function advance(
         context_text = CASE
           -- Never replace another inference's newer memory with a stale
           -- snapshot. A legitimate legacy RESPOND also refreshes context.
-          WHEN $8::boolean OR s.context_revision <> $16::bigint THEN s.context_text
+          WHEN $8::boolean OR moved.active_run_id <> $5::uuid OR s.context_revision <> $16::bigint THEN s.context_text
           WHEN $4::text = 'floor_open'
             AND (moved.active_run_id <> $5::uuid
                  OR moved.activity_epoch <> $6::bigint
@@ -164,7 +164,7 @@ async function advance(
           THEN s.context_text
           ELSE $9::text END,
         context_revision = CASE
-          WHEN $8::boolean OR s.context_revision <> $16::bigint
+          WHEN $8::boolean OR moved.active_run_id <> $5::uuid OR s.context_revision <> $16::bigint
             THEN s.context_revision
           WHEN $4::text = 'floor_open'
             AND (moved.active_run_id <> $5::uuid
@@ -174,7 +174,7 @@ async function advance(
             THEN s.context_revision
           ELSE s.context_revision + 1 END,
         character_stance = CASE
-          WHEN $8::boolean OR s.context_revision <> $16::bigint
+          WHEN $8::boolean OR moved.active_run_id <> $5::uuid OR s.context_revision <> $16::bigint
             OR ($4::text = 'floor_open'
               AND (moved.active_run_id <> $5::uuid
                    OR moved.activity_epoch <> $6::bigint
@@ -182,7 +182,7 @@ async function advance(
                    OR now() - $7::timestamptz >= interval '60 seconds'))
           THEN s.character_stance ELSE $10::text END,
         character_waiting_variant = CASE
-          WHEN $8::boolean OR s.context_revision <> $16::bigint
+          WHEN $8::boolean OR moved.active_run_id <> $5::uuid OR s.context_revision <> $16::bigint
             OR ($4::text = 'floor_open'
               AND (moved.active_run_id <> $5::uuid
                    OR moved.activity_epoch <> $6::bigint
@@ -226,6 +226,7 @@ async function advance(
               THEN s.character_speaking_until
               ELSE NULL END END,
         character_frame = CASE
+          WHEN moved.active_run_id <> $5::uuid THEN s.character_frame
           WHEN $4::text <> 'floor_open'
             AND s.character_speaking_until > now()
             AND moved.activity_epoch = $6::bigint
@@ -246,6 +247,7 @@ async function advance(
           WHEN $11::smallint = 2 THEN 'waiting_2'
           ELSE 'waiting_1' END,
         expression_id = CASE
+          WHEN moved.active_run_id <> $5::uuid THEN s.expression_id
           WHEN $4::text = 'floor_open' AND NOT $8::boolean
             AND $12::text <> ''
             AND moved.active_run_id = $5::uuid
