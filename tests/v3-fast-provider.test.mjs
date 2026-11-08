@@ -5,12 +5,15 @@ import {
   fastModelCandidates, fastShouldTryFallback,
 } from "../src/lib/v3/fast-provider.ts";
 
-test("default models remain free and fallback is distinct", () => {
-  const candidates = fastModelCandidates({});
+test("one environment variable controls all AI modes by default", () => {
+  const candidates = fastModelCandidates({
+    shared: "nvidia/nemotron-3.5-lightning:free",
+  });
   assert.deepEqual(candidates.map(x => x.model),
-    ["google/gemma-4-26b-a4b-it:free", "openrouter/free"]);
+    ["nvidia/nemotron-3.5-lightning:free"]);
   assert.equal(candidates[0].disableReasoning, true);
-  assert.equal(candidates[1].disableReasoning, false);
+  assert.deepEqual(fastModelCandidates({}).map(x => x.model),
+    ["nvidia/nemotron-3.5-lightning:free"]);
 });
 
 test("do not add provider restrictions or response_format that can fail for free endpoints", () => {
@@ -25,8 +28,11 @@ test("do not add provider restrictions or response_format that can fail for free
   assert.ok(Number(body.max_tokens) <= 200);
 });
 
-test("minimal fallback omits reasoning for provider compatibility", () => {
-  const candidate = fastModelCandidates({})[1];
+test("explicit alternative fallback omits reasoning for provider compatibility", () => {
+  const candidate = fastModelCandidates({
+    shared: "nvidia/nemotron-3.5-lightning:free",
+    fallback: "openrouter/free",
+  })[1];
   const body = fastCompletionBody(candidate, [
     {role:"user",content:"Olá!"},
   ]);
@@ -43,6 +49,15 @@ test("explicit model fallback is opt-in and never inferred as a paid option", ()
   assert.equal(models[1].model,"nvidia/nemotron-3-ultra-550b-a55b:free");
   assert.equal(models[0].timeoutMs,2700);
   assert.equal(fastModelCandidates({primary:"openrouter/free",fallback:"openrouter/free"}).length,1);
+});
+
+test("fast-specific override remains possible without changing OBSERVE", () => {
+  const models = fastModelCandidates({
+    shared: "nvidia/nemotron-3.5-lightning:free",
+    primary: "google/gemma-4-26b-a4b-it:free",
+  });
+  assert.deepEqual(models.map(x => x.model),
+    ["google/gemma-4-26b-a4b-it:free"]);
 });
 
 test("HTTP 400, 404, 429 and 402 are visible as machine-readable reasons", () => {
