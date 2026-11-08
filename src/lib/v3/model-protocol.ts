@@ -61,12 +61,9 @@ export function fallbackObserve(input: {
   context: string; stance: Stance; waitingVariant: number;
   speakerId?: string; transcript?: string;
 }): ObserveDecision {
-  const label = (input.speakerId ?? "speaker_unknown")
-    .replace(/[^a-zA-Z0-9_/-]/g, "").slice(0, 48);
-  const utterance = (input.transcript ?? "").replace(/\s+/g, " ").trim().slice(0, 1200);
-  const entry = utterance ? `[Transcrição de ${label}: ${utterance}]` : "";
-  const previous = input.context.trim();
-  const context = [previous, entry].filter(Boolean).join("\n").slice(-3000).trim();
+  // Raw utterances are stored as events, never appended verbatim to semantic
+  // memory. The next successful OBSERVE will generate a proper summary.
+  const context = input.context.trim().slice(-3000);
   return {
     context: context || "Nenhuma informação confirmada sobre o ambiente.",
     stance: input.stance,
