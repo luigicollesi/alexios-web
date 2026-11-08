@@ -14,6 +14,7 @@ export type V3ConversationStatus = {
   processedSequence: number;
   pendingCount: number;
   activityEpoch: number;
+  memoryRevision?: number;
   lastTurn: null | {
     sequence: number;
     speakerId: string;
@@ -28,6 +29,7 @@ export type V3ConversationStatus = {
     fastStatus?: string;
     fastModelMs?: number | null;
     fastError?: string | null;
+    fastMemoryApplied?: boolean | null;
     receivedAt: string | null;
   };
 };
@@ -100,6 +102,7 @@ export function normalizeStatus(payload: unknown, now = Date.now()): AlexiosStat
       processedSequence: safeNumber(rawConversation.processedSequence),
       pendingCount: safeNumber(rawConversation.pendingCount),
       activityEpoch: safeNumber(rawConversation.activityEpoch),
+      memoryRevision: safeNumber(rawConversation.memoryRevision),
       lastTurn: rawConversation.lastTurn && typeof rawConversation.lastTurn === "object" ? {
         sequence: safeNumber(rawTurn.sequence),
         speakerId: typeof rawTurn.speakerId === "string"
@@ -118,6 +121,8 @@ export function normalizeStatus(payload: unknown, now = Date.now()): AlexiosStat
           Number.isFinite(rawFloor.fastModelMs) ? rawFloor.fastModelMs : null,
         fastError: typeof rawFloor.fastError === "string"
           ? rawFloor.fastError.slice(0, 90) : null,
+        fastMemoryApplied: typeof rawFloor.fastMemoryApplied === "boolean"
+          ? rawFloor.fastMemoryApplied : null,
         receivedAt: typeof rawFloor.receivedAt === "string" ? rawFloor.receivedAt : null,
       } : null,
     } : null;
