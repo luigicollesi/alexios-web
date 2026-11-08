@@ -19,6 +19,7 @@ type ClaimedFastFloor = {
   activity_epoch: string | number;
   received_at: string;
   context_text: string;
+  context_revision: string | number;
   character_stance: Stance;
   character_waiting_variant: number;
   character_frame: Frame;
@@ -28,7 +29,7 @@ type ClaimedFastFloor = {
   desired_power: string;
   lease_fresh: boolean;
 };
-type SpeechRow = {fast_status: string; speech_published: boolean};
+type SpeechRow = {fast_status: string; speech_published: boolean; context_applied: boolean | null};
 async function claim(eventId: string, token: string): Promise<ClaimedFastFloor | null> {
   const rows = await query<ClaimedFastFloor>(
     `WITH claimed AS (
@@ -40,7 +41,7 @@ async function claim(eventId: string, token: string): Promise<ClaimedFastFloor |
       RETURNING *
     )
     SELECT e.event_id, e.agent_id, e.run_id, e.sequence, e.activity_epoch,
-      e.received_at, s.context_text, s.character_stance,
+      e.received_at, s.context_text, s.context_revision, s.character_stance,
       s.character_waiting_variant, s.character_frame, st.active_run_id,
       st.activity_epoch AS latest_activity, s.power, s.desired_power,
       (s.last_poll_at > now() - interval '45 seconds'
@@ -139,7 +140,8 @@ async function finalize(
   // overwriting another inference's newer consolidated memory.
   const rows = await query<SpeechRow>(
     `WITH gate AS MATERIALIZED (
-      SELECT e.event_id, e.agent_id
+      SELECT e.event_id, e.agent_id,
+        (s.context_revision = $9::bigint) AS memory_current
       FROM public.alexios_v3_events e
       JOIN public.alexios_v3_streams st ON st.agent_id = e.agent_id
       JOIN public.alexios_sessions s ON s.agent_id = e.agent_id
@@ -154,28 +156,36 @@ async function finalize(
       FOR UPDATE OF st, s
     ), persisted AS (
       UPDATE public.alexios_sessions s SET
-        context_text = CASE WHEN s.context_text = $6::text
+        context_text = CASE WHEN s.context_revision = $9::bigint
           THEN $5::text ELSE s.context_text END,
-        character_stance = CASE WHEN s.context_text = $6::text
+        context_revision = s.context_revision +
+          CASE WHEN s.context_revision = $9::bigint THEN 1 ELSE 0 END,
+        character_stance = CASE WHEN s.context_revision = $9::bigint
           THEN $7::text ELSE s.character_stance END,
-        character_waiting_variant = CASE WHEN s.context_text = $6::text
+        character_waiting_variant = CASE WHEN s.context_revision = $9::bigint
           THEN $8::smallint ELSE s.character_waiting_variant END,
         speech_text = CASE WHEN $3::text <> ''
           THEN $3::text ELSE s.speech_text END,
         speech_seq = speech_seq + CASE WHEN $3::text <> '' THEN 1 ELSE 0 END,
         speech_at = CASE WHEN $3::text <> '' THEN now() ELSE s.speech_at END,
         expression_id = CASE WHEN $3::text <> ''
-          THEN 'speaking' ELSE 'idle' END,
+          THEN 'speaking'
+          WHEN s.character_speaking_until > now() THEN s.expression_id
+          ELSE 'idle' END,
         character_frame = CASE WHEN $3::text <> ''
           THEN 'speaking'
+          WHEN s.character_speaking_until > now() THEN s.character_frame
+          WHEN s.context_revision <> $9::bigint THEN s.character_frame
           WHEN $8::smallint = 2 THEN 'waiting_2' ELSE 'waiting_1' END,
         character_speaking_until = CASE WHEN $3::text <> ''
           THEN now() +
             LEAST(12, GREATEST(3, LENGTH($3::text) / 17)) * interval '1 second'
+          WHEN s.character_speaking_until > now() THEN s.character_speaking_until
           ELSE NULL END,
         version = version + 1, updated_at = now()
       WHERE s.agent_id = (SELECT agent_id FROM gate)
-      RETURNING s.agent_id
+      RETURNING s.agent_id,
+        (SELECT memory_current FROM gate) AS memory_applied
     ), finished AS (
       UPDATE public.alexios_v3_events e SET
         fast_status = CASE
@@ -183,6 +193,7 @@ async function finalize(
           WHEN EXISTS (SELECT 1 FROM persisted) THEN 'silent'
           ELSE 'revoked' END,
         fast_finished_at = now(), fast_model_ms = $4::integer, fast_token = NULL,
+        fast_context_applied = (SELECT memory_applied FROM persisted),
         fast_error = CASE WHEN EXISTS (SELECT 1 FROM persisted) THEN NULL
           ELSE 'floor_invalidated_before_publication' END
       WHERE e.event_id = $1::uuid AND e.fast_token = $2::uuid
@@ -190,11 +201,12 @@ async function finalize(
       RETURNING e.fast_status
     )
     SELECT fast_status,
-      (fast_status = 'published') AS speech_published
+      (fast_status = 'published') AS speech_published,
+      (SELECT memory_applied FROM persisted) AS context_applied
     FROM finished`,
     [floor.event_id, token, decision.shouldSpeak ? decision.speech : "",
      modelMs, decision.context, floor.context_text,
-     decision.stance, decision.waitingVariant],
+     decision.stance, decision.waitingVariant, numeric(floor.context_revision)],
   );
   return rows[0] || null;
 }
@@ -206,7 +218,8 @@ async function failFast(
   await query(
     `UPDATE public.alexios_v3_events SET
       fast_status = $4::text, fast_finished_at = now(), fast_token = NULL,
-      fast_error = $3::text
+      fast_error = $3::text,
+      fast_context_applied = false
     WHERE event_id = $1::uuid AND fast_token = $2::uuid
       AND fast_status = 'running'`,
     [eventId, token, error.slice(0, 90), status],
@@ -252,6 +265,7 @@ export async function processFastFloorV3(eventId: string): Promise<void> {
       endToEndMs: Date.now() - started,
       published: saved?.speech_published ?? false,
       status: saved?.fast_status ?? "already_finalized",
+      contextApplied: saved?.context_applied ?? false,
     });
   } catch (error) {
     const reason = fastFailureCode(error);
