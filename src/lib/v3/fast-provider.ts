@@ -10,19 +10,23 @@ export type FastModelCandidate = {
   disableReasoning: boolean;
 };
 
-const DEFAULT_FREE_MODEL = "google/gemma-4-26b-a4b-it:free";
-const DEFAULT_FREE_FALLBACK = "openrouter/free";
+const DEFAULT_FREE_MODEL = "nvidia/nemotron-3.5-lightning:free";
 
-/** Keep the existing paid-model policy: only explicitly configured
- * non-free names may be used as primary/fallback.
+/**
+ * One model setting is the default for OBSERVE and Fast Response:
+ * OPENROUTER_MODEL. A fast-specific override or a distinct fallback can
+ * still be configured, but neither is required for normal operation.
  */
 export function fastModelCandidates(env: {
+  shared?: string;
   primary?: string;
   fallback?: string;
   timeoutMs?: string;
 }): FastModelCandidate[] {
-  const primary = env.primary?.trim() || DEFAULT_FREE_MODEL;
-  const fallback = env.fallback?.trim() || DEFAULT_FREE_FALLBACK;
+  const primary = env.primary?.trim() || env.shared?.trim() || DEFAULT_FREE_MODEL;
+  // No implicit switch to another model (e.g. openrouter/free). This keeps
+  // model selection deterministic and avoids unnecessary duplicated env vars.
+  const fallback = env.fallback?.trim() || primary;
   const mainTimeout = Math.min(4_000, Math.max(1_200,
     Number(env.timeoutMs) || 2_400));
   const candidates: FastModelCandidate[] = [
