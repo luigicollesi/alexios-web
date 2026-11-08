@@ -28,14 +28,13 @@ export const FRESH_FLOOR_TURNS_SQL = `
     ), 0)
     AND e.event_type IN ('turn_end', 'turn_chunk')
     AND e.status NOT IN ('obsolete', 'failed')
-    AND e.received_at >= $4::timestamptz - interval '3 minutes'
   ORDER BY e.sequence DESC
-  LIMIT 4
+  LIMIT 24
 `;
 
 /** SQL returns newest first; prompt must read chronological speech. */
 export function formatFreshFloorTurns(
-  rows: FloorTurn[], perTurnLimit = 350, totalLimit = 1600,
+  rows: FloorTurn[], perTurnLimit = 350, totalLimit = 2400,
 ): string {
   return [...rows].reverse().map(row => {
     const speaker = (row.speaker_id || "speaker_unknown").slice(0, 24);
