@@ -5,6 +5,7 @@ export type FastResponseStatus =
   | "silent" | "revoked" | "timed_out";
 
 import type {Stance} from "./protocol";
+import {MAX_CONTEXT_CHARS} from "./persona-core";
 
 export type FastDecision = {
   context: string;
@@ -42,7 +43,7 @@ export function parseFastDecision(raw: unknown): FastDecision {
   }
   const speech = value.shouldSpeak ? value.speech.trim().slice(0, 350) : "";
   return {
-    context: value.context.trim().slice(0, 3000),
+    context: value.context.trim().slice(0, MAX_CONTEXT_CHARS),
     stance: value.stance,
     waitingVariant: value.waitingVariant,
     shouldSpeak: value.shouldSpeak && speech.length > 0,
