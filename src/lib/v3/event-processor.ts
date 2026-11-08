@@ -275,7 +275,7 @@ async function recentTurnsForFloor(event: Claimed): Promise<string> {
   return rows.reverse().map((row) => {
     const speaker = (row.speaker_id || "speaker_unknown").slice(0, 24);
     return "[" + row.run_id.slice(0, 8) + "/" + speaker + "]: " +
-      (row.transcript || "").replace(/\\s+/g, " ").trim().slice(0, 350);
+      (row.transcript || "").replace(/\s+/g, " ").trim().slice(0, 350);
   }).join("\n").slice(-1600);
 }
 
