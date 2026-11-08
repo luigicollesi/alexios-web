@@ -4,7 +4,7 @@ import {
   Activity, ArrowDownRight, ArrowUpRight, Check, CircleDot, Cpu,
   Headphones, LockKeyhole, Power, Radio, ShieldCheck, Volume2, WifiOff, X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import {
   derivePowerView, EXPRESSION_LABELS, normalizeStatus,
   type AlexiosStatus, type ExpressionId, type PowerAction, type CharacterVisual,
@@ -107,6 +107,9 @@ export function ControlConsoleV2() {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [pending, setPending] = useState<PowerAction | null>(null);
+  const [voiceEnabled, setVoiceEnabled] = useState(false);
+  const lastSeenSpeech = useRef<number | null>(null);
+  const lastSeenActivity = useRef<number | null>(null);
 
   useEffect(() => {
     const resize = () => {
@@ -130,6 +133,8 @@ export function ControlConsoleV2() {
     const controller = new AbortController();
     let inFlight = false;
     let mounted = true;
+    let nextDelay = 3_500;
+    let timer: number | undefined;
 
     const poll = async () => {
       if (inFlight || !mounted) return;
@@ -161,6 +166,10 @@ export function ControlConsoleV2() {
         const raw: unknown = await response.json();
         if (mounted) {
           const freshStatus = normalizeStatus(raw);
+          // Fast feedback only for a running V3 session; avoid continuous
+          // high-frequency DB queries when offline or on V2.
+          nextDelay = freshStatus.core.protocolVersion === 3 &&
+            freshStatus.core.power === "running" ? 650 : 3_500;
           setSnapshot(freshStatus);
           setPending((current) => {
             if (current === "start" && freshStatus.core.power === "running") return null;
@@ -181,14 +190,66 @@ export function ControlConsoleV2() {
       }
     };
 
-    void poll();
-    const interval = window.setInterval(() => void poll(), 3_500);
+    const cycle = async () => {
+      await poll();
+      if (mounted) timer = window.setTimeout(() => void cycle(), nextDelay);
+    };
+    void cycle();
     return () => {
       mounted = false;
       controller.abort();
-      window.clearInterval(interval);
+      if (timer !== undefined) window.clearTimeout(timer);
     };
   }, [authorized]);
+
+  // Browser TTS is opt-in and must follow a user gesture. Never replay
+  // an old speech_seq on initial login, refresh or voice enabling.
+  useEffect(() => {
+    if (!snapshot) return;
+    const sequence = snapshot.core.speech.seq;
+    const activityEpoch = snapshot.conversation?.activityEpoch ?? null;
+    if (lastSeenSpeech.current === null) {
+      lastSeenSpeech.current = sequence;
+      lastSeenActivity.current = activityEpoch;
+      return;
+    }
+    const newVoiceActivity = activityEpoch !== null &&
+      lastSeenActivity.current !== null &&
+      activityEpoch > lastSeenActivity.current;
+    lastSeenActivity.current = activityEpoch;
+    if (newVoiceActivity && typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    if (sequence <= lastSeenSpeech.current) return;
+    lastSeenSpeech.current = sequence;
+    if (!voiceEnabled || snapshot.core.protocolVersion !== 3 ||
+        snapshot.core.power !== "running" || !snapshot.core.speech.text ||
+        !("speechSynthesis" in window)) return;
+    const at = snapshot.core.speech.at ? Date.parse(snapshot.core.speech.at) : NaN;
+    if (!Number.isFinite(at) || Date.now() - at > 5_000) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(snapshot.core.speech.text);
+    utterance.lang = "pt-BR";
+    utterance.rate = 1.12;
+    const voices = window.speechSynthesis.getVoices();
+    const brasil = voices.find(voice => voice.lang.toLowerCase() === "pt-br");
+    if (brasil) utterance.voice = brasil;
+    window.speechSynthesis.speak(utterance);
+  }, [snapshot, voiceEnabled]);
+
+  useEffect(() => {
+    return () => {
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  const toggleBrowserVoice = () => {
+    if (!("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    setVoiceEnabled(value => !value);
+  };
 
   const powerView = derivePowerView(snapshot);
   const live = powerView !== "offline";
@@ -382,7 +443,17 @@ export function ControlConsoleV2() {
             <div className="metric-row"><span><Power size={14} /> CORE POWER</span><strong>{snapshot?.core.power.toUpperCase() ?? "UNKNOWN"}</strong></div>
           </div>
           <section className="speech-log" aria-label="Última fala do Alexios" aria-live="polite">
-            <span className="speech-caption"><Volume2 size={12} /> ÚLTIMA FALA / ALEXIOS</span>
+            <div className="speech-title-row">
+              <span className="speech-caption"><Volume2 size={12} /> ÚLTIMA FALA / ALEXIOS</span>
+              {snapshot?.core.protocolVersion === 3 && (
+                <button type="button" className="speech-voice-toggle"
+                  onClick={toggleBrowserVoice}
+                  aria-pressed={voiceEnabled}
+                  title="Reproduzir respostas novas em português no navegador">
+                  {voiceEnabled ? "VOZ LIGADA" : "ATIVAR VOZ"}
+                </button>
+              )}
+            </div>
             <p>{snapshot?.core.speech.text || "Nenhuma intervenção até o momento. O Alexios pode optar por permanecer em silêncio."}</p>
             <span className="speech-timestamp">{snapshot?.core.speech.at ? formatPoll(snapshot.core.speech.at) : "AGUARDANDO DECISÃO"}</span>
             {snapshot?.core.protocolVersion === 3 && (
