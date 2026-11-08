@@ -236,10 +236,16 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
     if (state.status === "failed") return {handled: false, reason: "requires-recovery"};
     throw new V3DeferredError();
   }
+  const startedAt = Date.now();
+  const sequence = numeric(job.sequence);
+  const latencyBeforeProcessingMs = Date.now() - Date.parse(job.received_at);
   try {
     if (job.event_type === "floor_open" && !floorValid(job)) {
       const saved = await advance(job, token, null, true);
       if (!saved) throw new V3DeferredError();
+      console.info("[Alexios V3] piso de fala obsoleto", {
+        eventId, sequence, latencyBeforeProcessingMs,
+      });
       return {handled: true, reason: "obsolete-floor"};
     }
     const current = {
@@ -255,9 +261,21 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
         });
     const saved = await advance(job, token, decision, false);
     if (!saved) throw new V3DeferredError();
+    console.info("[Alexios V3] evento processado", {
+      eventId, sequence, type: job.event_type,
+      latencyBeforeProcessingMs,
+      inferenceAndCommitMs: Date.now() - startedAt,
+      responseRequested: job.event_type === "floor_open"
+        ? ("shouldSpeak" in decision && decision.shouldSpeak) : false,
+      // A verificação transacional ainda pode descartar resposta obsoleta.
+    });
     return {handled: true};
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
+    console.error("[Alexios V3] falha de processamento", {
+      eventId, sequence, type: job.event_type, durationMs: Date.now() - startedAt,
+      reason: msg.slice(0, 140),
+    });
     await releaseClaim(job.agent_id, job.event_id, token, msg);
     throw error;
   }
