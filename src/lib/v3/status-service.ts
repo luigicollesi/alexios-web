@@ -15,6 +15,7 @@ type ConversationRow = {
   floor_reason: string | null;
   floor_fast_status: string | null;
   floor_fast_model_ms: number | null;
+  floor_fast_error: string | null;
   floor_received_at: string | null;
 };
 
@@ -30,6 +31,7 @@ export async function statusConversationV3(agentId: string) {
         last_floor.last_error AS floor_reason,
         last_floor.fast_status AS floor_fast_status,
         last_floor.fast_model_ms AS floor_fast_model_ms,
+        last_floor.fast_error AS floor_fast_error,
         last_floor.received_at AS floor_received_at
      FROM public.alexios_v3_streams st
      LEFT JOIN LATERAL (
@@ -40,7 +42,7 @@ export async function statusConversationV3(agentId: string) {
        ORDER BY sequence DESC LIMIT 1
      ) last_turn ON TRUE
      LEFT JOIN LATERAL (
-       SELECT sequence, status, last_error, fast_status, fast_model_ms, received_at
+       SELECT sequence, status, last_error, fast_status, fast_model_ms, fast_error, received_at
        FROM public.alexios_v3_events
        WHERE agent_id = st.agent_id AND event_type = 'floor_open'
        ORDER BY sequence DESC LIMIT 1
@@ -70,6 +72,7 @@ export async function statusConversationV3(agentId: string) {
       reason: row.floor_reason,
       fastStatus: row.floor_fast_status ?? "legacy",
       fastModelMs: row.floor_fast_model_ms,
+      fastError: row.floor_fast_error,
       receivedAt: row.floor_received_at,
     },
   };
