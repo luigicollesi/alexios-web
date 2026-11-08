@@ -44,13 +44,14 @@ Depois do merge na `main` e do deployment `READY`, configurar:
 | Env var | Valor | Efeito |
 |---|---|---|
 | `ALEXIOS_V3_FAST_ENABLED` | `true` | Ativa o novo caminho rápido somente para floors futuros |
-| `ALEXIOS_V3_FAST_MODEL` | Opcional | Define modelo OpenRouter específico da via rápida |
+| `ALEXIOS_V3_FAST_MODEL` | Opcional | Padrão: `google/gemma-4-26b-a4b-it:free`. Pode escolher outro modelo |
 | `ALEXIOS_V3_FAST_MODEL_TIMEOUT_MS` | `2600` (padrão) | Timeout de inferência, limitado entre 1100 e 4500 ms |
-| `OPENROUTER_MODEL` | Existente | Usado se nenhum fast model for configurado |
+| `OPENROUTER_MODEL` | Existente | Continua responsável pelo `OBSERVE`; não foi alterado |
 | `OPENROUTER_API_KEY` | Existente | Autentica chamadas ao OpenRouter |
 
 **Padrão seguro:** `ALEXIOS_V3_FAST_ENABLED` é falso se não configurado.
-A V2 não muda. Nenhum modelo pago é habilitado automaticamente.
+A V2 não muda. O modelo fast padrão é gratuito, mas sujeito a limites
+e variações de latência do OpenRouter. Nenhum modelo pago é habilitado automaticamente.
 
 Uma alternativa paga para reduzir a latência (medir antes da adoção):
 `google/gemini-3.1-flash-lite`, modelo de baixa latência disponível
