@@ -156,7 +156,7 @@ async function finalize(
         AND s.run_id = e.run_id AND s.protocol_version = 3
         AND s.power = 'running' AND s.desired_power = 'running'
         AND s.last_poll_at > now() - interval '45 seconds'
-        AND now() - e.received_at < interval '6 seconds'
+        AND now() - e.received_at < interval '9 seconds'
       FOR UPDATE OF st, s
     ), published AS (
       UPDATE public.alexios_sessions s SET
