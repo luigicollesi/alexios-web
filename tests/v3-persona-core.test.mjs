@@ -21,7 +21,7 @@ test("every request gets fixed persona, selected pose, rolling memory and only f
   for (const frame of ["listening","speaking","waiting_1","waiting_2"]){
     assert.ok(messages[0].content.includes(frame));
   }
-  assert.ok(messages[0].content.includes("Pose atual exibida: crossed-arm/listening"));
+  assert.ok(messages[0].content.includes("Imagem atualmente exibida: /characters/stand/crossed-arm/listening.png"));
   assert.ok(messages[1].content.includes("PostgreSQL"));
   assert.ok(!messages[2].content.includes("2+2"));
   assert.match(messages[2].content,/Qual banco estamos usando/);
