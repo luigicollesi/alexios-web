@@ -9,7 +9,28 @@ export interface CharacterVisual {
   src: string;
 }
 
+export type V3ConversationStatus = {
+  acceptedSequence: number;
+  processedSequence: number;
+  pendingCount: number;
+  activityEpoch: number;
+  lastTurn: null | {
+    sequence: number;
+    speakerId: string;
+    text: string;
+    status: string;
+    receivedAt: string | null;
+  };
+  lastFloor: null | {
+    sequence: number;
+    status: string;
+    reason: string | null;
+    receivedAt: string | null;
+  };
+};
+
 export interface AlexiosStatus {
+  conversation: V3ConversationStatus | null;
   agent: {
     connected: boolean;
     pollingActive: boolean;
@@ -64,6 +85,33 @@ export function normalizeStatus(payload: unknown, now = Date.now()): AlexiosStat
 
   const speech = object(core.speech);
   const character = object(core.character);
+  const rawConversation = object(root.conversation);
+  const rawTurn = object(rawConversation.lastTurn);
+  const rawFloor = object(rawConversation.lastFloor);
+  const safeNumber = (value: unknown) =>
+    typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+  const conversation: V3ConversationStatus | null =
+    core.protocolVersion === 3 && root.conversation !== null &&
+    typeof root.conversation === "object" ? {
+      acceptedSequence: safeNumber(rawConversation.acceptedSequence),
+      processedSequence: safeNumber(rawConversation.processedSequence),
+      pendingCount: safeNumber(rawConversation.pendingCount),
+      activityEpoch: safeNumber(rawConversation.activityEpoch),
+      lastTurn: rawConversation.lastTurn && typeof rawConversation.lastTurn === "object" ? {
+        sequence: safeNumber(rawTurn.sequence),
+        speakerId: typeof rawTurn.speakerId === "string"
+          ? rawTurn.speakerId.slice(0, 35) : "speaker_unknown",
+        text: typeof rawTurn.text === "string" ? rawTurn.text.slice(0, 300) : "",
+        status: typeof rawTurn.status === "string" ? rawTurn.status.slice(0, 20) : "pending",
+        receivedAt: typeof rawTurn.receivedAt === "string" ? rawTurn.receivedAt : null,
+      } : null,
+      lastFloor: rawConversation.lastFloor && typeof rawConversation.lastFloor === "object" ? {
+        sequence: safeNumber(rawFloor.sequence),
+        status: typeof rawFloor.status === "string" ? rawFloor.status.slice(0, 20) : "pending",
+        reason: typeof rawFloor.reason === "string" ? rawFloor.reason.slice(0, 90) : null,
+        receivedAt: typeof rawFloor.receivedAt === "string" ? rawFloor.receivedAt : null,
+      } : null,
+    } : null;
   const stance: CharacterStance =
     character.stance === "crossed-arm" ? "crossed-arm" : "hand-in-pocket";
   const frame: CharacterFrame =
@@ -72,6 +120,7 @@ export function normalizeStatus(payload: unknown, now = Date.now()): AlexiosStat
   const seq = typeof speech.seq === "number" && Number.isSafeInteger(speech.seq) && speech.seq >= 0 ? speech.seq : 0;
 
   return {
+    conversation,
     agent: {
       connected,
       pollingActive: connected,

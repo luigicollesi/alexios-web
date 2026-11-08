@@ -3,6 +3,7 @@ import {randomUUID} from "node:crypto";
 import {query, numeric} from "@/lib/agent-db";
 import {observeV3, respondV3} from "@/lib/v3/model-service";
 import type {Stance} from "@/lib/v3/protocol";
+import {floorRejectReason} from "@/lib/v3/floor-policy";
 
 type Claimed = {
   event_id: string;
@@ -87,9 +88,14 @@ async function advance(
   decision: {context: string; stance: Stance; waitingVariant: number;
              speech?: string; shouldSpeak?: boolean; degraded?: boolean} | null,
   obsolete: boolean,
-): Promise<{advanced: boolean; speechPublished: boolean}> {
+  obsoleteReason: string | null = null,
+): Promise<{advanced: boolean; speechPublished: boolean; floorEligible: boolean}> {
   const response = decision && decision.shouldSpeak ? (decision.speech || "") : "";
-  const rows = await query<{event_id: string; speech_published: boolean}>(
+  const rows = await query<{
+    event_id: string;
+    speech_published: boolean;
+    floor_eligible: boolean;
+  }>(
     `WITH moved AS (
       UPDATE public.alexios_v3_streams st SET
         last_processed_sequence = $3::bigint,
@@ -191,16 +197,35 @@ async function advance(
         version = version + 1, updated_at = now()
       FROM moved
       WHERE s.agent_id = moved.agent_id AND s.protocol_version = 3
-      RETURNING s.agent_id, (
-        $4::text = 'floor_open' AND $12::text <> ''
-        AND s.speech_at = now()
-      ) AS speech_published
+      RETURNING s.agent_id,
+        (
+          moved.active_run_id = $5::uuid
+          AND moved.activity_epoch = $6::bigint
+          AND s.power = 'running'
+          AND s.desired_power = 'running'
+          AND s.protocol_version = 3
+          AND now() - $7::timestamptz < interval '60 seconds'
+        ) AS floor_eligible,
+        (
+          $4::text = 'floor_open' AND $12::text <> ''
+          AND s.speech_at = now()
+        ) AS speech_published
     ), finished AS (
       UPDATE public.alexios_v3_events SET
         status = CASE
-          WHEN $8::boolean OR NOT EXISTS (SELECT 1 FROM persisted) THEN 'obsolete'
+          WHEN $8::boolean
+            OR NOT EXISTS (SELECT 1 FROM persisted)
+            OR ($4::text = 'floor_open'
+              AND NOT EXISTS (SELECT 1 FROM persisted WHERE floor_eligible))
+          THEN 'obsolete'
           ELSE 'processed' END,
-        processed_at = now(), last_error = NULL
+        processed_at = now(),
+        last_error = CASE
+          WHEN $8::boolean THEN $15::text
+          WHEN $4::text = 'floor_open'
+            AND NOT EXISTS (SELECT 1 FROM persisted WHERE floor_eligible)
+          THEN 'revoked_during_inference'
+          ELSE NULL END
       WHERE event_id = $13::uuid
         AND agent_id IN (SELECT agent_id FROM moved)
       RETURNING event_id
@@ -209,26 +234,61 @@ async function advance(
       EXISTS (
         SELECT 1 FROM persisted
         WHERE persisted.speech_published
-      ) AS speech_published
+      ) AS speech_published,
+      EXISTS (
+        SELECT 1 FROM persisted
+        WHERE persisted.floor_eligible
+      ) AS floor_eligible
     FROM finished`,
     [data.agent_id, token, numeric(data.sequence), data.event_type,
      data.run_id, numeric(data.activity_epoch), data.received_at,
      obsolete, decision?.context ?? data.context_text,
      decision?.stance ?? data.character_stance,
      decision?.waitingVariant ?? data.character_waiting_variant,
-     response, data.event_id, decision?.degraded === true],
+     response, data.event_id, decision?.degraded === true, obsoleteReason],
   );
   return {
     advanced: Boolean(rows[0]),
     speechPublished: Boolean(rows[0]?.speech_published),
+    floorEligible: Boolean(rows[0]?.floor_eligible),
   };
 }
 
-function floorValid(data: Claimed): boolean {
-  return data.active_run_id === data.run_id &&
-    numeric(data.latest_activity) === numeric(data.activity_epoch) &&
-    data.power === "running" && data.desired_power === "running" &&
-    Date.now() - Date.parse(data.received_at) < 40_000;
+type RecentTurnRow = {
+  run_id: string;
+  speaker_id: string | null;
+  transcript: string | null;
+};
+
+async function recentTurnsForFloor(event: Claimed): Promise<string> {
+  const rows = await query<RecentTurnRow>(
+    `SELECT run_id, speaker_id, transcript
+     FROM public.alexios_v3_events
+     WHERE agent_id = $1::uuid
+       AND sequence < $2::bigint
+       AND event_type IN ('turn_end', 'turn_chunk')
+       AND status = 'processed'
+       AND received_at >= $3::timestamptz - interval '3 minutes'
+     ORDER BY sequence DESC LIMIT 4`,
+    [event.agent_id, numeric(event.sequence), event.received_at],
+  );
+  return rows.reverse().map((row) => {
+    const speaker = (row.speaker_id || "speaker_unknown").slice(0, 24);
+    return "[" + row.run_id.slice(0, 8) + "/" + speaker + "]: " +
+      (row.transcript || "").replace(/\s+/g, " ").trim().slice(0, 350);
+  }).join("\n").slice(-1600);
+}
+
+function floorInvalidReason(data: Claimed): string | null {
+  return floorRejectReason({
+    runId: data.run_id,
+    activeRunId: data.active_run_id,
+    eventEpoch: numeric(data.activity_epoch),
+    latestEpoch: numeric(data.latest_activity),
+    power: data.power,
+    desiredPower: data.desired_power,
+    receivedAt: data.received_at,
+  });
 }
 
 export async function processEventV3(eventId: string): Promise<{handled: boolean; reason?: string}> {
@@ -254,20 +314,27 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
   const sequence = numeric(job.sequence);
   const latencyBeforeProcessingMs = Date.now() - Date.parse(job.received_at);
   try {
-    if (job.event_type === "floor_open" && !floorValid(job)) {
-      const outcome = await advance(job, token, null, true);
+    const floorReason = job.event_type === "floor_open"
+      ? floorInvalidReason(job) : null;
+    if (floorReason) {
+      const outcome = await advance(job, token, null, true, floorReason);
       if (!outcome.advanced) throw new V3DeferredError();
       console.info("[Alexios V3] piso de fala obsoleto", {
         eventId, sequence, latencyBeforeProcessingMs,
+        reason: floorReason,
+        eventEpoch: numeric(job.activity_epoch),
+        latestEpoch: numeric(job.latest_activity),
+        power: job.power,
+        desiredPower: job.desired_power,
       });
-      return {handled: true, reason: "obsolete-floor"};
+      return {handled: true, reason: floorReason};
     }
     const current = {
       context: job.context_text, stance: job.character_stance,
       waitingVariant: job.character_waiting_variant,
     };
     const decision = job.event_type === "floor_open"
-      ? await respondV3(current)
+      ? await respondV3({...current, recentTurns: await recentTurnsForFloor(job)})
       : await observeV3({
           ...current,
           speakerId: job.run_id.slice(0, 8) + "/" + (job.speaker_id ?? "speaker_unknown"),
@@ -283,6 +350,8 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
       responseRequested: job.event_type === "floor_open"
         ? ("shouldSpeak" in decision && decision.shouldSpeak) : false,
       responsePublished: outcome.speechPublished,
+      ...(job.event_type === "floor_open" && !outcome.floorEligible
+        ? {reason: "revoked_during_inference"} : {}),
       // Report the committed result, not just the LLM's intention.
     });
     return {handled: true};

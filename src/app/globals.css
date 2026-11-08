@@ -335,3 +335,13 @@ button:focus-visible, input:focus-visible { outline: 2px solid #e4545e; outline-
 .speech-log p { color: #e0dfe4; font-size: 11px; line-height: 1.6; max-height: 100px; overflow-y: auto; overflow-wrap: anywhere; margin: 9px 0 8px; }
 .speech-timestamp { color: #777983; font: 9px monospace; letter-spacing: .1em; }
 .speech-error { margin-top: 8px; color: #ee9a9f; font-size: 10px; line-height: 1.3; }
+
+/* V3 displays the last received turn and the reason for silence without
+   implying OBSERVE created a reply. The panel keeps existing 1600x900 layout. */
+.v3-conversation { margin-top: 13px; padding-top: 12px; border-top: 1px solid #35363b; }
+.v3-conversation .speech-caption { color: #9ab5bc; font-size: 8px; }
+.v3-conversation p { margin: 7px 0 5px; max-height: 51px; font-size: 10px; }
+.v3-conversation .v3-floor-status {
+  color: #b9b7c2; font-size: 10px; line-height: 1.4;
+  margin: 10px 0 5px; max-height: none;
+}
