@@ -85,7 +85,7 @@ async function releaseClaim(agentId: string, eventId: string, token: string, iss
 async function advance(
   data: Claimed, token: string,
   decision: {context: string; stance: Stance; waitingVariant: number;
-             speech?: string; shouldSpeak?: boolean} | null,
+             speech?: string; shouldSpeak?: boolean; degraded?: boolean} | null,
   obsolete: boolean,
 ): Promise<boolean> {
   const response = decision && decision.shouldSpeak ? (decision.speech || "") : "";
@@ -185,7 +185,10 @@ async function advance(
             OR $4::text = 'turn_chunk' THEN 'listening'
           ELSE 'idle' END,
         last_ai_at = CASE WHEN $8::boolean THEN s.last_ai_at ELSE now() END,
-        last_error = NULL, version = version + 1, updated_at = now()
+        last_error = CASE WHEN $14::boolean
+          THEN 'OpenRouter indisponível ou respondeu JSON inválido; modo de recuperação.'
+          ELSE NULL END,
+        version = version + 1, updated_at = now()
       FROM moved
       WHERE s.agent_id = moved.agent_id AND s.protocol_version = 3
       RETURNING s.agent_id
@@ -205,7 +208,7 @@ async function advance(
      obsolete, decision?.context ?? data.context_text,
      decision?.stance ?? data.character_stance,
      decision?.waitingVariant ?? data.character_waiting_variant,
-     response, data.event_id],
+     response, data.event_id, decision?.degraded === true],
   );
   return Boolean(rows[0]);
 }
@@ -265,6 +268,7 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
       eventId, sequence, type: job.event_type,
       latencyBeforeProcessingMs,
       inferenceAndCommitMs: Date.now() - startedAt,
+      degraded: decision.degraded === true,
       responseRequested: job.event_type === "floor_open"
         ? ("shouldSpeak" in decision && decision.shouldSpeak) : false,
       // A verificação transacional ainda pode descartar resposta obsoleta.

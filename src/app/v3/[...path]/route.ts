@@ -24,8 +24,28 @@ export async function POST(request: Request, context: Context) {
     const body = await jsonBody(request);
     if (path === "agent/sync") {
       const result = await syncV3(body);
+      if (result.recoveryEventId) {
+        // Trigger recovery even if the original queue delivery was exhausted.
+        // A distinct delivery is safe: claim() and the Neon sequence are atomic.
+        try {
+          await send("alexios-events-v3", {eventId: result.recoveryEventId}, {
+            delaySeconds: 1,
+          });
+          console.info("[Alexios V3] recuperação reativada", {
+            eventId: result.recoveryEventId,
+          });
+        } catch (error) {
+          console.error("[Alexios V3] falha ao reativar evento pendente", {
+            reason: error instanceof Error ? error.name : "unknown",
+          });
+          // Sync must not take down the microphone if the queue is unavailable.
+        }
+      }
       console.info("[Alexios V3] sync aceito", {nextSequence: result.nextSequence});
-      return Response.json(result, {headers: {"Cache-Control": "no-store"}});
+      return Response.json(
+        {nextSequence: result.nextSequence},
+        {headers: {"Cache-Control": "no-store"}},
+      );
     }
     if (path === "agent/activity") {
       const result = await activityV3(body);

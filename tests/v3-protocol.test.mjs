@@ -1,7 +1,9 @@
 import {test} from "node:test";
 import assert from "node:assert/strict";
 import {parseIdentity, parseActivity, parseV3Event, characterImage, chooseCharacterFrame} from "../src/lib/v3/protocol.ts";
-import {parseObserve, parseRespond} from "../src/lib/v3/model-protocol.ts";
+import {
+  parseObserve, parseRespond, fallbackObserve, fallbackRespond,
+} from "../src/lib/v3/model-protocol.ts";
 
 const identity = {
   instanceId: "alx_" + "a".repeat(40),
@@ -74,4 +76,39 @@ test("all eight avatar states are deterministic and stay inside local character 
   assert.equal(chooseCharacterFrame(false, true, 1), "listening");
   assert.equal(chooseCharacterFrame(true, false, 1), "speaking");
   assert.equal(chooseCharacterFrame(false, false, 2), "waiting_2");
+});
+
+test("invalid or truncated OBSERVE JSON never blocks transcript preservation", () => {
+  assert.throws(() => parseObserve('{"context":"Uma frase interrompida'));
+  const repaired = fallbackObserve({
+    context: "Pessoa A deseja construir um assistente.",
+    stance: "crossed-arm", waitingVariant: 2,
+    speakerId: "speaker_02", transcript: "Preciso que o Raspberry Pi funcione.",
+  });
+  assert.match(repaired.context, /Pessoa A deseja construir/);
+  assert.match(repaired.context, /speaker_02/);
+  assert.match(repaired.context, /Raspberry Pi funcione/);
+  assert.equal(repaired.stance, "crossed-arm");
+  assert.equal(repaired.waitingVariant, 2);
+  assert.equal(Object.hasOwn(repaired, "speech"), false);
+});
+
+test("degraded RESPOND always chooses silence and preserves existing memory", () => {
+  const decision = fallbackRespond({
+    context: "Pessoa A pergunta, Pessoa B responde.",
+    stance: "hand-in-pocket", waitingVariant: 1,
+  });
+  assert.equal(decision.context, "Pessoa A pergunta, Pessoa B responde.");
+  assert.equal(decision.shouldSpeak, false);
+  assert.equal(decision.speech, "");
+});
+
+test("fallback context remains bounded while preserving newest utterance", () => {
+  const result = fallbackObserve({
+    context: "a".repeat(3000),
+    stance: "hand-in-pocket", waitingVariant: 1,
+    speakerId: "speaker_01", transcript: "Fala recente válida.",
+  });
+  assert.ok(result.context.length <= 3000);
+  assert.match(result.context, /Fala recente válida/);
 });
