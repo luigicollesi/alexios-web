@@ -169,14 +169,17 @@ async function finalize(
   return rows[0] || null;
 }
 
-async function failFast(eventId: string, token: string, error: string) {
+async function failFast(
+  eventId: string, token: string, error: string,
+  status: "revoked" | "silent" = "silent",
+) {
   await query(
     `UPDATE public.alexios_v3_events SET
-      fast_status = 'silent', fast_finished_at = now(), fast_token = NULL,
+      fast_status = $4::text, fast_finished_at = now(), fast_token = NULL,
       fast_error = $3::text
     WHERE event_id = $1::uuid AND fast_token = $2::uuid
       AND fast_status = 'running'`,
-    [eventId, token, error.slice(0, 90)],
+    [eventId, token, error.slice(0, 90), status],
   );
 }
 
@@ -200,7 +203,7 @@ export async function processFastFloorV3(eventId: string): Promise<void> {
       receivedAtMs: Date.parse(current.received_at), nowMs: Date.now(),
     });
     if (!valid) {
-      await failFast(eventId, token, "floor_invalid_before_model");
+      await failFast(eventId, token, "floor_invalid_before_model", "revoked");
       return;
     }
     const recent = await fetchTurns(current);
