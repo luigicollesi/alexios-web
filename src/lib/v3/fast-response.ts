@@ -3,7 +3,7 @@ import {randomUUID} from "node:crypto";
 import {query, numeric} from "@/lib/agent-db";
 import {fastFloorEligible, parseFastDecision, type FastDecision} from "@/lib/v3/fast-protocol";
 import {v3Messages} from "@/lib/v3/persona-core";
-import type {Stance} from "@/lib/v3/protocol";
+import type {Stance, Frame} from "@/lib/v3/protocol";
 import {FRESH_FLOOR_TURNS_SQL, formatFreshFloorTurns, type FloorTurn}
   from "@/lib/v3/floor-turns";
 import {
@@ -21,6 +21,7 @@ type ClaimedFastFloor = {
   context_text: string;
   character_stance: Stance;
   character_waiting_variant: number;
+  character_frame: Frame;
   active_run_id: string;
   latest_activity: string | number;
   power: string;
@@ -40,7 +41,7 @@ async function claim(eventId: string, token: string): Promise<ClaimedFastFloor |
     )
     SELECT e.event_id, e.agent_id, e.run_id, e.sequence, e.activity_epoch,
       e.received_at, s.context_text, s.character_stance,
-      s.character_waiting_variant, st.active_run_id,
+      s.character_waiting_variant, s.character_frame, st.active_run_id,
       st.activity_epoch AS latest_activity, s.power, s.desired_power,
       (s.last_poll_at > now() - interval '45 seconds'
         AND s.protocol_version = 3 AND s.run_id = e.run_id) AS lease_fresh
@@ -56,7 +57,7 @@ async function fetchTurns(floor: ClaimedFastFloor): Promise<string> {
   const rows = await query<FloorTurn>(FRESH_FLOOR_TURNS_SQL, [
     floor.agent_id, floor.run_id, numeric(floor.sequence),
   ]);
-  return formatFreshFloorTurns(rows, 360, 1400);
+  return formatFreshFloorTurns(rows, 360, 2400);
 }
 
 async function decideSpeech(floor: ClaimedFastFloor, recentTurns: string) {
@@ -72,6 +73,7 @@ async function decideSpeech(floor: ClaimedFastFloor, recentTurns: string) {
     context: floor.context_text,
     stance: floor.character_stance,
     waitingVariant: floor.character_waiting_variant,
+    frame: floor.character_frame,
     freshSpeech: recentTurns,
     responseWindow: true,
   });
