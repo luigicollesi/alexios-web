@@ -17,6 +17,41 @@ const API_POWER = "/api/v2/alexios/power";
 const SCALE_BASE_WIDTH = 1600;
 const SCALE_BASE_HEIGHT = 900;
 
+const FLOOR_REASONS: Record<string, string> = {
+  new_speech: "Nova fala detectada; resposta anterior cancelada.",
+  microphone_stopped: "Microfone desligado antes da decisão da IA.",
+  capture_disabled: "Captura desativada pelo controle FIM.",
+  run_replaced: "Execução do Python substituída antes da resposta.",
+  expired: "O espaço de fala expirou antes da análise.",
+  invalid_timestamp: "Horário do evento inválido.",
+  revoked_during_inference: "Resposta cancelada durante a inferência.",
+};
+
+function floorSummary(status: AlexiosStatus): string {
+  const convo = status.conversation;
+  if (!convo) return "Aguardando a primeira fala.";
+  const last = convo.lastFloor;
+  if (convo.pendingCount > 0) {
+    return `Analisando ${convo.pendingCount} evento(s); último processado #${convo.processedSequence}.`;
+  }
+  if (!last || (convo.lastTurn && convo.lastTurn.sequence > last.sequence)) {
+    return "Fala registrada. Aguardando uma oportunidade de resposta.";
+  }
+  if (last.status === "obsolete") {
+    return FLOOR_REASONS[last.reason || ""] ||
+      "Oportunidade descartada: atividade, captura ou execução alterada.";
+  }
+  if (last.status === "processed") {
+    const speechAt = status.core.speech.at ? Date.parse(status.core.speech.at) : NaN;
+    const floorAt = last.receivedAt ? Date.parse(last.receivedAt) : NaN;
+    return Number.isFinite(speechAt) && Number.isFinite(floorAt) && speechAt >= floorAt
+      ? "Resposta publicada no canal da personagem."
+      : "Espaço avaliado; a IA permaneceu em silêncio.";
+  }
+  return "Aguardando processamento do espaço de fala.";
+}
+
+
 function formatPoll(value: string | null) {
   if (!value) return "--:--:--";
   const time = Date.parse(value);
@@ -350,6 +385,23 @@ export function ControlConsoleV2() {
             <span className="speech-caption"><Volume2 size={12} /> ÚLTIMA FALA / ALEXIOS</span>
             <p>{snapshot?.core.speech.text || "Nenhuma intervenção até o momento. O Alexios pode optar por permanecer em silêncio."}</p>
             <span className="speech-timestamp">{snapshot?.core.speech.at ? formatPoll(snapshot.core.speech.at) : "AGUARDANDO DECISÃO"}</span>
+            {snapshot?.core.protocolVersion === 3 && (
+              <div className="v3-conversation" aria-label="Diagnóstico da conversa V3">
+                <span className="speech-caption"><Headphones size={12} /> ÚLTIMA FALA DETECTADA / PYTHON</span>
+                <p>{snapshot.conversation?.lastTurn?.text ||
+                  "Nenhuma transcrição de voz recebida nesta instância."}</p>
+                <span className="speech-timestamp">
+                  {snapshot.conversation?.lastTurn
+                    ? `#${snapshot.conversation.lastTurn.sequence} · ${snapshot.conversation.lastTurn.speakerId} · ${snapshot.conversation.lastTurn.status}`
+                    : "AGUARDANDO TRANSCRIÇÃO"}
+                </span>
+                <p className="v3-floor-status" role="status">{floorSummary(snapshot)}</p>
+                <span className="speech-timestamp">
+                  EVENTOS {snapshot.conversation?.processedSequence ?? 0} /
+                  {snapshot.conversation?.acceptedSequence ?? 0}
+                </span>
+              </div>
+            )}
           </section>
           {snapshot?.core.lastError && <p className="speech-error" role="status">{snapshot.core.lastError}</p>}
           <div className="right-technical"><div className="technical-line" /><div className="technical-line short" /><span>RESPONSE CHANNEL // LIVE</span></div>
