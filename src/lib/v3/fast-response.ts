@@ -90,7 +90,7 @@ async function decideSpeech(floor: ClaimedFastFloor, recentTurns: string) {
       stream: false,
       // Gemma 4 and Gemini Flash Lite support JSON-object output.
       // Do not send it indiscriminately to models without that capability.
-      ...(/^(google\\/gemma-4|google\\/gemini)/.test(model)
+      ...((model.startsWith("google/gemma-4") || model.startsWith("google/gemini"))
         ? {response_format: {type: "json_object"}} : {}),
       messages: [
         {role:"system", content:
