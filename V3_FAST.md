@@ -15,11 +15,17 @@ Fluxo:
 3. O caminho rápido lê contexto atual + até quatro transcrições recentes
    diretamente do Neon, incluindo eventos ainda pendentes de `OBSERVE`.
 4. Chama o OpenRouter com `reasoning.enabled=false`,
-   `max_tokens=180`, sem streaming. O roteamento é escolhido pelo OpenRouter.
-   Apenas `shouldSpeak` e `speech` são permitidos no JSON.
-5. O commit da fala verifica novamente **runId, activityEpoch,
-   versão de protocolo, power, FIM, lease do Python e prazo**. Se qualquer
-   condição mudou, não publica texto e não incrementa `speech_seq`.
+   `max_tokens=560`, sem streaming. O roteamento é escolhido pelo OpenRouter.
+   A IA recebe contexto core (persona, poses e pose atual), memória variável
+   e somente falas posteriores ao último `floor_open` dessa execução.
+   O JSON deve incluir `context`, `stance`, `waitingVariant`,
+   `shouldSpeak` e `speech`, inclusive quando escolher silêncio.
+5. O commit da memória, pose e eventual fala verifica novamente
+   **runId, activityEpoch, versão de protocolo, power, FIM, lease do Python
+   e prazo**. Mesmo no silêncio, atualiza memória e pose quando o evento é
+   válido. Uma checagem otimista evita sobrescrever resumos alterados por
+   inferências concorrentes. Se a autorização mudou, não publica texto nem
+   incrementa `speech_seq`.
 6. Vercel Queue continua processando o evento em ordem para avançar o
    cursor do Neon, mas **não gera uma segunda resposta**. Falhas de
    `after()` resultam em silêncio e não bloqueiam o fluxo.
@@ -143,3 +149,8 @@ Observabilidade na Vercel:
 Erros 429 e 402 indicam limites e saldo da conta; nesse caso,
 trocar os parâmetros HTTP não resolve cotas. Verifique as regras atuais
 de limites do OpenRouter, sem expor as chaves da API.
+
+## Contexto circular V3
+
+A implementação detalhada, contrato de entrada/saída e limites de consumo
+estão documentados em [V3_CONTEXT.md](V3_CONTEXT.md).
