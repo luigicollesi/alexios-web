@@ -345,3 +345,17 @@ button:focus-visible, input:focus-visible { outline: 2px solid #e4545e; outline-
   color: #b9b7c2; font-size: 10px; line-height: 1.4;
   margin: 10px 0 5px; max-height: none;
 }
+
+/* Optional browser speech output: user-activated, no external TTS provider. */
+.speech-title-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.speech-voice-toggle {
+  appearance: none; background: rgba(113,180,161,.09);
+  border: 1px solid rgba(113,180,161,.32); border-radius: 3px;
+  padding: 4px 6px; font: 700 9px monospace; letter-spacing: .05em;
+  color: #b5c9c7; cursor: pointer; flex-shrink: 0;
+}
+.speech-voice-toggle[aria-pressed="true"] {
+  color: #83e0b8; background: rgba(43,137,101,.17);
+  border-color: rgba(85,199,153,.64);
+}
+.speech-voice-toggle:focus-visible { outline: 2px solid #b5ddcf; outline-offset: 2px; }
