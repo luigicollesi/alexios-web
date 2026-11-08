@@ -6,8 +6,8 @@ export type FastResponseStatus =
 
 export type FastDecision = {shouldSpeak: boolean; speech: string};
 
-export const FAST_FLOOR_TTL_MS = 6_000;
-export const FAST_WORKER_TIMEOUT_MS = 8_000;
+export const FAST_FLOOR_TTL_MS = 9_000;
+export const FAST_WORKER_TIMEOUT_MS = 11_000;
 
 export function fastLaneEnabled(): boolean {
   // Explicit opt-in: deployment can roll back instantly to the queued V3.
