@@ -87,9 +87,9 @@ async function advance(
   decision: {context: string; stance: Stance; waitingVariant: number;
              speech?: string; shouldSpeak?: boolean; degraded?: boolean} | null,
   obsolete: boolean,
-): Promise<boolean> {
+): Promise<{advanced: boolean; speechPublished: boolean}> {
   const response = decision && decision.shouldSpeak ? (decision.speech || "") : "";
-  const rows = await query<{event_id: string}>(
+  const rows = await query<{event_id: string; speech_published: boolean}>(
     `WITH moved AS (
       UPDATE public.alexios_v3_streams st SET
         last_processed_sequence = $3::bigint,
@@ -191,7 +191,10 @@ async function advance(
         version = version + 1, updated_at = now()
       FROM moved
       WHERE s.agent_id = moved.agent_id AND s.protocol_version = 3
-      RETURNING s.agent_id
+      RETURNING s.agent_id, (
+        $4::text = 'floor_open' AND $12::text <> ''
+        AND s.speech_at = now()
+      ) AS speech_published
     ), finished AS (
       UPDATE public.alexios_v3_events SET
         status = CASE
@@ -202,7 +205,12 @@ async function advance(
         AND agent_id IN (SELECT agent_id FROM moved)
       RETURNING event_id
     )
-    SELECT event_id FROM finished`,
+    SELECT finished.event_id,
+      EXISTS (
+        SELECT 1 FROM persisted
+        WHERE persisted.speech_published
+      ) AS speech_published
+    FROM finished`,
     [data.agent_id, token, numeric(data.sequence), data.event_type,
      data.run_id, numeric(data.activity_epoch), data.received_at,
      obsolete, decision?.context ?? data.context_text,
@@ -210,7 +218,10 @@ async function advance(
      decision?.waitingVariant ?? data.character_waiting_variant,
      response, data.event_id, decision?.degraded === true],
   );
-  return Boolean(rows[0]);
+  return {
+    advanced: Boolean(rows[0]),
+    speechPublished: Boolean(rows[0]?.speech_published),
+  };
 }
 
 function floorValid(data: Claimed): boolean {
@@ -244,8 +255,8 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
   const latencyBeforeProcessingMs = Date.now() - Date.parse(job.received_at);
   try {
     if (job.event_type === "floor_open" && !floorValid(job)) {
-      const saved = await advance(job, token, null, true);
-      if (!saved) throw new V3DeferredError();
+      const outcome = await advance(job, token, null, true);
+      if (!outcome.advanced) throw new V3DeferredError();
       console.info("[Alexios V3] piso de fala obsoleto", {
         eventId, sequence, latencyBeforeProcessingMs,
       });
@@ -262,8 +273,8 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
           speakerId: job.run_id.slice(0, 8) + "/" + (job.speaker_id ?? "speaker_unknown"),
           transcript: job.transcript ?? "",
         });
-    const saved = await advance(job, token, decision, false);
-    if (!saved) throw new V3DeferredError();
+    const outcome = await advance(job, token, decision, false);
+    if (!outcome.advanced) throw new V3DeferredError();
     console.info("[Alexios V3] evento processado", {
       eventId, sequence, type: job.event_type,
       latencyBeforeProcessingMs,
@@ -271,7 +282,8 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
       degraded: decision.degraded === true,
       responseRequested: job.event_type === "floor_open"
         ? ("shouldSpeak" in decision && decision.shouldSpeak) : false,
-      // A verificação transacional ainda pode descartar resposta obsoleta.
+      responsePublished: outcome.speechPublished,
+      // Report the committed result, not just the LLM's intention.
     });
     return {handled: true};
   } catch (error) {
