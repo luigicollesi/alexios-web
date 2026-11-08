@@ -39,9 +39,14 @@ function floorSummary(status: AlexiosStatus): string {
   if (last?.fastStatus === "running") return "Gerando resposta rápida...";
   if (last?.fastStatus === "pending") return "Preparando resposta rápida...";
   if (last?.fastStatus === "silent") {
-    return last.fastError
-      ? "Modelo rápido indisponível (" + last.fastError + ")."
-      : "Modelo rápido optou pelo silêncio.";
+    if (last.fastError) return "Modelo rápido indisponível (" + last.fastError + ").";
+    if (last.fastMemoryApplied === false) {
+      return "Silêncio; memória anterior preservada por atualização concorrente.";
+    }
+    if (last.fastMemoryApplied === true) {
+      return "Silêncio escolhido; memória de contexto atualizada.";
+    }
+    return "Modelo rápido optou pelo silêncio.";
   }
   if (last?.fastStatus === "revoked" || last?.fastStatus === "timed_out") {
     return "Resposta rápida cancelada ou fora do prazo.";
