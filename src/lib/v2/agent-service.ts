@@ -1,3 +1,4 @@
+import {statusConversationV3} from "@/lib/v3/status-service";
 import "server-only";
 import { createHmac } from "node:crypto";
 import { AgentError, leaseIsFresh, numeric, query, type AgentSession, type Word } from "@/lib/agent-db";
@@ -282,6 +283,7 @@ export async function statusV2(agentId: string) {
   const row = await sessionFor(agentId);
   const isConnected = connected(row);
   const v3 = row.protocol_version === 3;
+  const conversation = v3 ? await statusConversationV3(agentId) : null;
   const stance = row.character_stance === "crossed-arm" ? "crossed-arm" : "hand-in-pocket";
   const variant = row.character_waiting_variant === 2 ? 2 : 1;
   const waiting = variant === 2 ? "waiting_2" : "waiting_1";
@@ -296,6 +298,7 @@ export async function statusV2(agentId: string) {
     ? frame === "speaking" ? "speaking" : frame === "listening" ? "listening" : "idle"
     : row.expression_id;
   return {
+    conversation,
     agent: {
       connected: isConnected,
       pollingActive: isConnected,
