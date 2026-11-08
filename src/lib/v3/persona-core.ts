@@ -1,10 +1,11 @@
 /** Stable V3 instructions: never persist prior questions as new user input. */
-import type {Stance} from "./protocol";
+import type {Stance, Frame} from "./protocol";
 
 export type CoreRequest = {
   context: string;
   stance: Stance;
   waitingVariant: number;
+  frame: Frame;
   freshSpeech: string;
   responseWindow: boolean;
 };
@@ -26,7 +27,8 @@ export function v3Messages(input: CoreRequest): Array<{role: "system" | "user"; 
     "Estados: listening (ouvindo), speaking (falando), waiting_1 e waiting_2 (espera).",
     "Você escolhe stance e waitingVariant (1 ou 2) de acordo com a atmosfera da conversa;",
     "o servidor aplica automaticamente listening/speaking conforme a atividade real.",
-    "Pose atual: " + input.stance + "/waiting_" + (input.waitingVariant === 2 ? 2 : 1) + ".",
+    "Pose atual exibida: " + input.stance + "/" + input.frame + ". Variante de espera escolhida: waiting_" +
+      (input.waitingVariant === 2 ? 2 : 1) + ".",
     "A memória variável é um resumo semântico, NÃO um histórico literal de perguntas.",
     "Preserve fatos relevantes, decisões, preferências e tópico vigente; elimine redundâncias,",
     "frases repetidas, perguntas já atendidas, ruídos e suposições sem confirmação.",
