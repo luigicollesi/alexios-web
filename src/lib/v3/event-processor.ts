@@ -2,7 +2,9 @@ import "server-only";
 import {randomUUID} from "node:crypto";
 import {query, numeric} from "@/lib/agent-db";
 import {observeV3, respondV3} from "@/lib/v3/model-service";
-import type {Stance} from "@/lib/v3/protocol";
+import {FRESH_FLOOR_TURNS_SQL, formatFreshFloorTurns, type FloorTurn}
+  from "@/lib/v3/floor-turns";
+import type {Stance, Frame} from "@/lib/v3/protocol";
 import {floorRejectReason} from "@/lib/v3/floor-policy";
 import {FAST_WORKER_TIMEOUT_MS, fastFloorTerminal, type FastResponseStatus} from "@/lib/v3/fast-protocol";
 
@@ -18,8 +20,10 @@ type Claimed = {
   activity_epoch: string | number;
   received_at: string;
   context_text: string;
+  context_revision: string | number;
   character_stance: Stance;
   character_waiting_variant: number;
+  character_frame: Frame;
   latest_activity: string | number;
   active_run_id: string;
   power: string;
@@ -57,7 +61,7 @@ async function claim(eventId: string, token: string): Promise<Claimed | null> {
     )
     SELECT e.event_id, e.agent_id, e.run_id, e.sequence,
       e.event_type, e.fast_status, e.transcript, e.speaker_id, e.activity_epoch, e.received_at,
-      s.context_text, s.character_stance, s.character_waiting_variant,
+      s.context_text, s.context_revision, s.character_stance, s.character_waiting_variant, s.character_frame,
       st.latest_activity, st.active_run_id, s.power, s.desired_power
     FROM marked e JOIN reserved st ON e.agent_id = st.agent_id
       JOIN public.alexios_sessions s ON s.agent_id = e.agent_id`,
@@ -149,24 +153,37 @@ async function advance(
     ), persisted AS (
       UPDATE public.alexios_sessions s SET
         context_text = CASE
-          WHEN $4::text = 'floor_open' AND NOT (
-            moved.active_run_id = $5::uuid
-            AND moved.activity_epoch = $6::bigint
-            AND s.power = 'running' AND s.desired_power = 'running'
-            AND s.protocol_version = 3
-            AND now() - $7::timestamptz < interval '60 seconds'
-          ) THEN s.context_text
-          WHEN $8::boolean THEN s.context_text
+          -- Never replace another inference's newer memory with a stale
+          -- snapshot. A legitimate legacy RESPOND also refreshes context.
+          WHEN $8::boolean OR $14::boolean OR moved.active_run_id <> $5::uuid OR s.context_revision <> $16::bigint THEN s.context_text
+          WHEN $4::text = 'floor_open'
+            AND (moved.active_run_id <> $5::uuid
+                 OR moved.activity_epoch <> $6::bigint
+                 OR s.power <> 'running' OR s.desired_power <> 'running'
+                 OR now() - $7::timestamptz >= interval '60 seconds')
+          THEN s.context_text
           ELSE $9::text END,
+        context_revision = CASE
+          WHEN $8::boolean OR $14::boolean OR moved.active_run_id <> $5::uuid OR s.context_revision <> $16::bigint
+            THEN s.context_revision
+          WHEN $4::text = 'floor_open'
+            AND (moved.active_run_id <> $5::uuid
+                 OR moved.activity_epoch <> $6::bigint
+                 OR s.power <> 'running' OR s.desired_power <> 'running'
+                 OR now() - $7::timestamptz >= interval '60 seconds')
+            THEN s.context_revision
+          ELSE s.context_revision + 1 END,
         character_stance = CASE
-          WHEN $8::boolean OR ($4::text = 'floor_open'
+          WHEN $8::boolean OR $14::boolean OR moved.active_run_id <> $5::uuid OR s.context_revision <> $16::bigint
+            OR ($4::text = 'floor_open'
               AND (moved.active_run_id <> $5::uuid
                    OR moved.activity_epoch <> $6::bigint
                    OR s.power <> 'running' OR s.desired_power <> 'running'
                    OR now() - $7::timestamptz >= interval '60 seconds'))
           THEN s.character_stance ELSE $10::text END,
         character_waiting_variant = CASE
-          WHEN $8::boolean OR ($4::text = 'floor_open'
+          WHEN $8::boolean OR $14::boolean OR moved.active_run_id <> $5::uuid OR s.context_revision <> $16::bigint
+            OR ($4::text = 'floor_open'
               AND (moved.active_run_id <> $5::uuid
                    OR moved.activity_epoch <> $6::bigint
                    OR s.power <> 'running' OR s.desired_power <> 'running'
@@ -209,6 +226,7 @@ async function advance(
               THEN s.character_speaking_until
               ELSE NULL END END,
         character_frame = CASE
+          WHEN moved.active_run_id <> $5::uuid THEN s.character_frame
           WHEN $4::text <> 'floor_open'
             AND s.character_speaking_until > now()
             AND moved.activity_epoch = $6::bigint
@@ -229,6 +247,7 @@ async function advance(
           WHEN $11::smallint = 2 THEN 'waiting_2'
           ELSE 'waiting_1' END,
         expression_id = CASE
+          WHEN moved.active_run_id <> $5::uuid THEN s.expression_id
           WHEN $4::text = 'floor_open' AND NOT $8::boolean
             AND $12::text <> ''
             AND moved.active_run_id = $5::uuid
@@ -241,7 +260,7 @@ async function advance(
             OR moved.activity_epoch > $6::bigint
             OR $4::text = 'turn_chunk' THEN 'listening'
           ELSE 'idle' END,
-        last_ai_at = CASE WHEN $8::boolean THEN s.last_ai_at ELSE now() END,
+        last_ai_at = CASE WHEN $8::boolean OR $14::boolean THEN s.last_ai_at ELSE now() END,
         last_error = CASE WHEN $14::boolean
           THEN 'OpenRouter indisponível ou respondeu JSON inválido; modo de recuperação.'
           ELSE NULL END,
@@ -296,7 +315,8 @@ async function advance(
      obsolete, decision?.context ?? data.context_text,
      decision?.stance ?? data.character_stance,
      decision?.waitingVariant ?? data.character_waiting_variant,
-     response, data.event_id, decision?.degraded === true, obsoleteReason],
+     response, data.event_id, decision?.degraded === true, obsoleteReason,
+     numeric(data.context_revision)],
   );
   return {
     advanced: Boolean(rows[0]),
@@ -305,29 +325,11 @@ async function advance(
   };
 }
 
-type RecentTurnRow = {
-  run_id: string;
-  speaker_id: string | null;
-  transcript: string | null;
-};
-
 async function recentTurnsForFloor(event: Claimed): Promise<string> {
-  const rows = await query<RecentTurnRow>(
-    `SELECT run_id, speaker_id, transcript
-     FROM public.alexios_v3_events
-     WHERE agent_id = $1::uuid
-       AND sequence < $2::bigint
-       AND event_type IN ('turn_end', 'turn_chunk')
-       AND status = 'processed'
-       AND received_at >= $3::timestamptz - interval '3 minutes'
-     ORDER BY sequence DESC LIMIT 4`,
-    [event.agent_id, numeric(event.sequence), event.received_at],
-  );
-  return rows.reverse().map((row) => {
-    const speaker = (row.speaker_id || "speaker_unknown").slice(0, 24);
-    return "[" + row.run_id.slice(0, 8) + "/" + speaker + "]: " +
-      (row.transcript || "").replace(/\s+/g, " ").trim().slice(0, 350);
-  }).join("\n").slice(-1600);
+  const rows = await query<FloorTurn>(FRESH_FLOOR_TURNS_SQL, [
+    event.agent_id, event.run_id, numeric(event.sequence),
+  ]);
+  return formatFreshFloorTurns(rows);
 }
 
 function floorInvalidReason(data: Claimed): string | null {
@@ -400,9 +402,16 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
     const current = {
       context: job.context_text, stance: job.character_stance,
       waitingVariant: job.character_waiting_variant,
+      frame: job.character_frame,
     };
+    const freshTurns = job.event_type === "floor_open"
+      ? await recentTurnsForFloor(job) : null;
+    // A floor with no new speech is consumed silently, without another
+    // provider request or any opportunity to replay old questions.
     const decision = job.event_type === "floor_open"
-      ? await respondV3({...current, recentTurns: await recentTurnsForFloor(job)})
+      ? freshTurns
+        ? await respondV3({...current, recentTurns: freshTurns})
+        : {...current, shouldSpeak: false, speech: ""}
       : await observeV3({
           ...current,
           speakerId: job.run_id.slice(0, 8) + "/" + (job.speaker_id ?? "speaker_unknown"),
@@ -414,7 +423,7 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
       eventId, sequence, type: job.event_type,
       latencyBeforeProcessingMs,
       inferenceAndCommitMs: Date.now() - startedAt,
-      degraded: decision.degraded === true,
+      degraded: "degraded" in decision && decision.degraded === true,
       responseRequested: job.event_type === "floor_open"
         ? ("shouldSpeak" in decision && decision.shouldSpeak) : false,
       responsePublished: outcome.speechPublished,

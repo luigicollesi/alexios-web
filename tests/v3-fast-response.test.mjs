@@ -13,22 +13,42 @@ const base = {
   pollFresh: true, receivedAtMs: now - 500, nowMs: now,
 };
 
-test("fast model accepts minimal JSON and trims excess text", () => {
-  assert.deepEqual(parseFastDecision('{"shouldSpeak":true,"speech":"  Dois.  "}'),
-    {shouldSpeak:true,speech:"Dois."});
-  assert.deepEqual(parseFastDecision('{"shouldSpeak":false,"speech":"não pode aparecer"}'),
-    {shouldSpeak:false,speech:""});
-  assert.equal(parseFastDecision(JSON.stringify({
-    shouldSpeak:true,speech:"x".repeat(700),
-  })).speech.length,350);
+const complete = (fields) => JSON.stringify({
+  context:"O usuário utiliza PostgreSQL no projeto.",
+  stance:"hand-in-pocket",
+  waitingVariant:1,
+  ...fields,
+});
+
+test("fast model always returns memory and pose, including silence", () => {
+  assert.deepEqual(parseFastDecision(complete({shouldSpeak:true,speech:"  Dois.  "})), {
+    context:"O usuário utiliza PostgreSQL no projeto.",
+    stance:"hand-in-pocket",
+    waitingVariant:1,
+    shouldSpeak:true,
+    speech:"Dois.",
+  });
+  const silent = parseFastDecision(complete({shouldSpeak:false,speech:"ignorar"}));
+  assert.equal(silent.shouldSpeak,false);
+  assert.equal(silent.speech,"");
+  assert.equal(silent.context,"O usuário utiliza PostgreSQL no projeto.");
+  assert.equal(silent.stance,"hand-in-pocket");
+  assert.equal(silent.waitingVariant,1);
+  assert.equal(parseFastDecision(complete({shouldSpeak:true,speech:"x".repeat(700)}))
+    .speech.length,350);
 });
 
 test("malformed, missing, and cut-off model JSON cannot authorize speech", () => {
   assert.throws(() => parseFastDecision('{"shouldSpeak":true,"speech":"truncado'));
   assert.throws(() => parseFastDecision('{"speech":"oi"}'));
   assert.throws(() => parseFastDecision('fala sem JSON'));
-  assert.deepEqual(parseFastDecision('{"shouldSpeak":true,"speech":"  "}'),
-    {shouldSpeak:false,speech:""});
+  assert.throws(() => parseFastDecision('{"shouldSpeak":true,"speech":"oi"}'));
+  assert.throws(() => parseFastDecision(complete({context:""})));
+  assert.throws(() => parseFastDecision(complete({stance:"invalid"})));
+  const noSpeech = parseFastDecision(complete({shouldSpeak:true,speech:"  "}));
+  assert.equal(noSpeech.shouldSpeak,false);
+  assert.equal(noSpeech.speech,"");
+
 });
 
 test("fast floor allows valid run and current speech epoch", () => {
@@ -61,4 +81,15 @@ test("legacy floors are not mistaken for fast-lane completion", () => {
   for(const value of ["published","silent","revoked","timed_out"]) {
     assert.equal(fastFloorTerminal(value),true);
   }
+});
+
+test("model output cannot cause unbounded rolling context", () => {
+  const longSummary = "a".repeat(2100);
+  const decision = parseFastDecision(complete({
+    context: longSummary,
+    shouldSpeak: false,
+    speech:"",
+  }));
+  assert.ok(decision.context.length <= 1200);
+  assert.equal(decision.shouldSpeak, false);
 });

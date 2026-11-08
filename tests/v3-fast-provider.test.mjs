@@ -25,7 +25,7 @@ test("do not add provider restrictions or response_format that can fail for free
   assert.deepEqual(body.reasoning, {enabled:false});
   assert.equal(Object.hasOwn(body, "provider"),false);
   assert.equal(Object.hasOwn(body, "response_format"),false);
-  assert.ok(Number(body.max_tokens) <= 200);
+  assert.ok(Number(body.max_tokens) >= 400 && Number(body.max_tokens) <= 650);
 });
 
 test("explicit alternative fallback omits reasoning for provider compatibility", () => {

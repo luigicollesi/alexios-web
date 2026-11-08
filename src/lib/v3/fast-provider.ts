@@ -49,7 +49,7 @@ export function fastCompletionBody(candidate: FastModelCandidate, messages: Arra
   return {
     model: candidate.model,
     messages,
-    max_tokens: 180,
+    max_tokens: 560,
     temperature: 0.15,
     stream: false,
     ...(candidate.disableReasoning ? {reasoning: {enabled: false}} : {}),

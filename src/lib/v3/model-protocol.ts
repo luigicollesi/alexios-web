@@ -1,5 +1,6 @@
 /** Pure JSON contracts for V3 AI; no server-only imports. */
 import type {Stance} from "./protocol";
+import {MAX_CONTEXT_CHARS} from "./persona-core.ts";
 
 export type ObserveDecision = {
   context: string;
@@ -31,7 +32,7 @@ function parseVisual(v: Record<string, unknown>): ObserveDecision {
     throw new Error("Contexto ou postura inválida na resposta da IA.");
   }
   return {
-    context: v.context.trim().slice(0, 3000),
+    context: v.context.trim().slice(0, MAX_CONTEXT_CHARS),
     stance: v.stance,
     waitingVariant: v.waitingVariant,
   };
@@ -61,12 +62,9 @@ export function fallbackObserve(input: {
   context: string; stance: Stance; waitingVariant: number;
   speakerId?: string; transcript?: string;
 }): ObserveDecision {
-  const label = (input.speakerId ?? "speaker_unknown")
-    .replace(/[^a-zA-Z0-9_/-]/g, "").slice(0, 48);
-  const utterance = (input.transcript ?? "").replace(/\s+/g, " ").trim().slice(0, 1200);
-  const entry = utterance ? `[Transcrição de ${label}: ${utterance}]` : "";
-  const previous = input.context.trim();
-  const context = [previous, entry].filter(Boolean).join("\n").slice(-3000).trim();
+  // Raw utterances are stored as events, never appended verbatim to semantic
+  // memory. The next successful OBSERVE will generate a proper summary.
+  const context = input.context.trim().slice(-MAX_CONTEXT_CHARS);
   return {
     context: context || "Nenhuma informação confirmada sobre o ambiente.",
     stance: input.stance,
@@ -80,7 +78,7 @@ export function fallbackRespond(input: {
   context: string; stance: Stance; waitingVariant: number;
 }): RespondDecision {
   return {
-    context: input.context.trim().slice(-3000) || "Nenhuma informação confirmada sobre o ambiente.",
+    context: input.context.trim().slice(-MAX_CONTEXT_CHARS) || "Nenhuma informação confirmada sobre o ambiente.",
     stance: input.stance,
     waitingVariant: input.waitingVariant === 2 ? 2 : 1,
     shouldSpeak: false,

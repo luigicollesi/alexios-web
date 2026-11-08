@@ -70,9 +70,10 @@ export async function activityV3(raw: unknown) {
   const rows = await query<{activity_epoch: number | string}>(
     `WITH changed AS (
       UPDATE public.alexios_v3_streams st SET
-        activity_epoch = GREATEST(st.activity_epoch, $3::bigint),
+        activity_epoch = $3::bigint,
         updated_at = now()
       WHERE st.agent_id = $1::uuid AND st.active_run_id = $2::uuid
+        AND st.activity_epoch < $3::bigint
         AND EXISTS (
           SELECT 1 FROM public.alexios_sessions s
           WHERE s.agent_id = st.agent_id AND s.run_id = $2::uuid
@@ -87,7 +88,17 @@ export async function activityV3(raw: unknown) {
       WHERE s.agent_id = $1::uuid AND EXISTS (SELECT 1 FROM changed)
       RETURNING agent_id
     )
-    SELECT activity_epoch FROM changed WHERE EXISTS (SELECT 1 FROM visual)`,
+    SELECT activity_epoch FROM changed WHERE EXISTS (SELECT 1 FROM visual)
+    UNION ALL
+    -- Exact retransmission of an activity epoch is idempotent. Do not reset
+    -- the image to listening after the assistant has already answered.
+    SELECT st.activity_epoch FROM public.alexios_v3_streams st
+    JOIN public.alexios_sessions s ON s.agent_id = st.agent_id
+    WHERE st.agent_id = $1::uuid AND st.active_run_id = $2::uuid
+      AND st.activity_epoch = $3::bigint
+      AND s.run_id = $2::uuid AND s.protocol_version = 3
+      AND s.last_poll_at > now() - interval '45 seconds'
+    LIMIT 1`,
     [agentId, runId, activity.activityEpoch],
   );
   if (!rows[0]) throw new AgentError(409, "Atividade rejeitada (V3 inativa).");

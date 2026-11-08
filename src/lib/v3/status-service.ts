@@ -5,6 +5,7 @@ type ConversationRow = {
   last_accepted_sequence: number | string;
   last_processed_sequence: number | string;
   activity_epoch: number | string;
+  memory_revision: number | string;
   turn_sequence: number | string | null;
   turn_status: string | null;
   turn_speaker: string | null;
@@ -16,6 +17,7 @@ type ConversationRow = {
   floor_fast_status: string | null;
   floor_fast_model_ms: number | null;
   floor_fast_error: string | null;
+  floor_fast_context_applied: boolean | null;
   floor_received_at: string | null;
 };
 
@@ -23,6 +25,7 @@ type ConversationRow = {
 export async function statusConversationV3(agentId: string) {
   const rows = await query<ConversationRow>(
     `SELECT st.last_accepted_sequence, st.last_processed_sequence, st.activity_epoch,
+        s.context_revision AS memory_revision,
         last_turn.sequence AS turn_sequence, last_turn.status AS turn_status,
         last_turn.speaker_id AS turn_speaker,
         last_turn.transcript AS turn_transcript,
@@ -32,8 +35,10 @@ export async function statusConversationV3(agentId: string) {
         last_floor.fast_status AS floor_fast_status,
         last_floor.fast_model_ms AS floor_fast_model_ms,
         last_floor.fast_error AS floor_fast_error,
+        last_floor.fast_context_applied AS floor_fast_context_applied,
         last_floor.received_at AS floor_received_at
      FROM public.alexios_v3_streams st
+     JOIN public.alexios_sessions s ON s.agent_id = st.agent_id
      LEFT JOIN LATERAL (
        SELECT sequence, status, speaker_id, transcript, received_at
        FROM public.alexios_v3_events
@@ -42,7 +47,8 @@ export async function statusConversationV3(agentId: string) {
        ORDER BY sequence DESC LIMIT 1
      ) last_turn ON TRUE
      LEFT JOIN LATERAL (
-       SELECT sequence, status, last_error, fast_status, fast_model_ms, fast_error, received_at
+       SELECT sequence, status, last_error, fast_status, fast_model_ms,
+         fast_error, fast_context_applied, received_at
        FROM public.alexios_v3_events
        WHERE agent_id = st.agent_id AND event_type = 'floor_open'
        ORDER BY sequence DESC LIMIT 1
@@ -59,6 +65,7 @@ export async function statusConversationV3(agentId: string) {
     processedSequence: processed,
     pendingCount: Math.max(0, accepted - processed),
     activityEpoch: numeric(row.activity_epoch),
+    memoryRevision: numeric(row.memory_revision),
     lastTurn: row.turn_sequence === null ? null : {
       sequence: numeric(row.turn_sequence),
       speakerId: row.turn_speaker || "speaker_unknown",
@@ -73,6 +80,7 @@ export async function statusConversationV3(agentId: string) {
       fastStatus: row.floor_fast_status ?? "legacy",
       fastModelMs: row.floor_fast_model_ms,
       fastError: row.floor_fast_error,
+      fastMemoryApplied: row.floor_fast_context_applied,
       receivedAt: row.floor_received_at,
     },
   };
