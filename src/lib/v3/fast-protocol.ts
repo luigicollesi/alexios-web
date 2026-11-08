@@ -4,7 +4,15 @@ export type FastResponseStatus =
   | "legacy" | "pending" | "running" | "published"
   | "silent" | "revoked" | "timed_out";
 
-export type FastDecision = {shouldSpeak: boolean; speech: string};
+import type {Stance} from "./protocol";
+
+export type FastDecision = {
+  context: string;
+  stance: Stance;
+  waitingVariant: 1 | 2;
+  shouldSpeak: boolean;
+  speech: string;
+};
 
 export const FAST_FLOOR_TTL_MS = 9_000;
 export const FAST_WORKER_TIMEOUT_MS = 11_000;
@@ -24,8 +32,22 @@ export function parseFastDecision(raw: unknown): FastDecision {
   if (typeof value.shouldSpeak !== "boolean" || typeof value.speech !== "string") {
     throw new Error("Fast response JSON fields missing.");
   }
+  // The model must always return a refreshed rolling context and visual pose,
+  // including when it decides silence.
+  if (typeof value.context !== "string" || !value.context.trim() ||
+      value.context.length > 6000 ||
+      (value.stance !== "crossed-arm" && value.stance !== "hand-in-pocket") ||
+      (value.waitingVariant !== 1 && value.waitingVariant !== 2)) {
+    throw new Error("Fast response context/pose fields missing.");
+  }
   const speech = value.shouldSpeak ? value.speech.trim().slice(0, 350) : "";
-  return {shouldSpeak: value.shouldSpeak && speech.length > 0, speech};
+  return {
+    context: value.context.trim().slice(0, 3000),
+    stance: value.stance,
+    waitingVariant: value.waitingVariant,
+    shouldSpeak: value.shouldSpeak && speech.length > 0,
+    speech,
+  };
 }
 
 export function fastFloorEligible(params: {
