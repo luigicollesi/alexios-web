@@ -86,6 +86,7 @@ async function requestModel(input: Input): Promise<ObserveDecision | RespondDeci
           },
           body: JSON.stringify({
             model, messages: messages(input),
+            reasoning: {enabled: false},
             temperature: 0.15,
             max_tokens: input.mode === "OBSERVE" ? 850 : 900,
             stream: false,
