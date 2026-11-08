@@ -4,12 +4,14 @@ import {
   type ObserveDecision, type RespondDecision,
 } from "@/lib/v3/model-protocol";
 import {v3Messages} from "@/lib/v3/persona-core";
+import type {Frame} from "@/lib/v3/protocol";
 
 type Task = "OBSERVE" | "RESPOND";
 type Input = {
   context: string;
   stance: "crossed-arm" | "hand-in-pocket";
   waitingVariant: number;
+  frame: Frame;
   mode: Task;
   speakerId?: string;
   transcript?: string;
@@ -23,6 +25,7 @@ function messages(input: Input) {
     context: input.context,
     stance: input.stance,
     waitingVariant: input.waitingVariant,
+    frame: input.frame,
     freshSpeech: input.mode === "OBSERVE"
       ? "[" + (input.speakerId || "speaker_unknown") + "] " + (input.transcript || "")
       : input.recentTurns || "",
