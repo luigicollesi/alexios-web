@@ -55,12 +55,23 @@ preserva o contexto anterior e registra a falha. Erros não autorizam fala.
 
 Fast Response atualiza memória, postura e (se houver) fala na mesma
 transação, condicionada a `runId`, `activityEpoch`, lease, power, FIM e
-prazo de nove segundos. Usa comparação otimista do contexto lido para não
+prazo de nove segundos. Usa revisão numérica crescente (`context_revision`) para não
 sobrescrever um resumo consolidado mais novo. O processamento sequencial
-também verifica a memória de origem antes de gravá-la.
+também verifica a revisão antes de gravar.
 
 A V2 não muda; as variáveis `OPENROUTER_MODEL` e os tokens existentes são
-reutilizados. Nenhuma migração é necessária.
+reutilizados. **A migração aditiva 006_v3_context_revision.sql é necessária
+antes do deploy deste código.** Ela adiciona `context_revision` à sessão,
+`fast_context_applied` aos eventos e índices para as janelas de fala.
+A migração foi aplicada e validada apenas na branch Neon
+`dev-alexios-web-v3`. A produção permanece intacta.
+
+As transações Fast e OBSERVE só aplicam a memória gerada quando a revisão
+lida no início ainda é a atual. Se outra inferência atualizar a memória
+primeiro, o resultado atrasado preserva o resumo mais novo. O campo
+`fast_context_applied` (true/false) indica isso no status autenticado.
+Um `speech_started` com `activityEpoch` já confirmado é idempotente
+e não pode trocar a pose exibida após uma resposta.
 
 ## Limites e validação
 
@@ -73,3 +84,26 @@ silenciosas, turnos com mais de uma fala, dois locutores, nova fala durante
 inferência, FIM, indisponibilidade OpenRouter, JSON truncado e backlog
 OBSERVE/Fast em paralelo. Testes de unidade/CI e EXPLAIN não substituem
 esse teste com microfone e API reais.
+
+## Catálogo visual verificado
+
+O repositório contém exatamente oito PNGs sob
+`public/characters/stand/`, e o core os enumera individualmente. O assistente
+escolhe entre `crossed-arm` (mais concentrado/reservado) e `hand-in-pocket`
+(mais casual), além de `waitingVariant` 1 ou 2. Os frames `listening` e
+`speaking` são estados de atividade do servidor. As duas imagens de espera
+são variações visuais, sem emoções impostas pela nomenclatura.
+
+A memória tem meta de 900 e limite de 1.200 caracteres, compartilhado pelos
+parsers de OBSERVE, RESPOND e Fast Response. Transcrições ficam persistidas
+como eventos separados, não como um histórico duplicado no contexto.
+
+## Rollout seguro
+
+1. Verificar os testes e Preview com `DATABASE_URL` isolada na branch Neon V3.
+2. Aplicar `db/migrations/006_v3_context_revision.sql` à produção Neon
+   **antes** de publicar o backend desta PR. Não remover a migração 004/005.
+3. Conferir a aplicação da revisão e as poses em silêncio e respostas reais.
+4. Revalidar Fast Response com concorrência e limites de tokens.
+
+O banco de produção NÃO recebeu a migração 006 nesta revisão.
