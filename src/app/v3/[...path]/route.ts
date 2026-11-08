@@ -23,10 +23,14 @@ export async function POST(request: Request, context: Context) {
     const path = (await context.params).path.join("/");
     const body = await jsonBody(request);
     if (path === "agent/sync") {
-      return Response.json(await syncV3(body), {headers: {"Cache-Control": "no-store"}});
+      const result = await syncV3(body);
+      console.info("[Alexios V3] sync aceito", {nextSequence: result.nextSequence});
+      return Response.json(result, {headers: {"Cache-Control": "no-store"}});
     }
     if (path === "agent/activity") {
-      return Response.json(await activityV3(body), {headers: {"Cache-Control": "no-store"}});
+      const result = await activityV3(body);
+      console.info("[Alexios V3] speech_started aceito");
+      return Response.json(result, {headers: {"Cache-Control": "no-store"}});
     }
     const kind: V3EventKind | undefined = path === "agent/turn" ? "turn_end"
       : path === "agent/chunk" ? "turn_chunk"
@@ -37,6 +41,9 @@ export async function POST(request: Request, context: Context) {
     // Retry of an accepted event reuses the same eventId and queue idempotency key.
     await send("alexios-events-v3", {eventId: ack.eventId}, {
       idempotencyKey: ack.eventId, delaySeconds: 1,
+    });
+    console.info("[Alexios V3] evento aceito", {
+      kind, eventId: ack.eventId, duplicate: ack.duplicate,
     });
     return Response.json({accepted: true}, {
       status: 202, headers: {"Cache-Control": "no-store"},
