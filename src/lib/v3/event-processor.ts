@@ -254,6 +254,31 @@ async function advance(
   };
 }
 
+type RecentTurnRow = {
+  run_id: string;
+  speaker_id: string | null;
+  transcript: string | null;
+};
+
+async function recentTurnsForFloor(event: Claimed): Promise<string> {
+  const rows = await query<RecentTurnRow>(
+    `SELECT run_id, speaker_id, transcript
+     FROM public.alexios_v3_events
+     WHERE agent_id = $1::uuid
+       AND sequence < $2::bigint
+       AND event_type IN ('turn_end', 'turn_chunk')
+       AND status = 'processed'
+       AND received_at >= $3::timestamptz - interval '3 minutes'
+     ORDER BY sequence DESC LIMIT 4`,
+    [event.agent_id, numeric(event.sequence), event.received_at],
+  );
+  return rows.reverse().map((row) => {
+    const speaker = (row.speaker_id || "speaker_unknown").slice(0, 24);
+    return "[" + row.run_id.slice(0, 8) + "/" + speaker + "]: " +
+      (row.transcript || "").replace(/\\s+/g, " ").trim().slice(0, 350);
+  }).join("\n").slice(-1600);
+}
+
 function floorInvalidReason(data: Claimed): string | null {
   return floorRejectReason({
     runId: data.run_id,
@@ -309,7 +334,7 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
       waitingVariant: job.character_waiting_variant,
     };
     const decision = job.event_type === "floor_open"
-      ? await respondV3(current)
+      ? await respondV3({...current, recentTurns: await recentTurnsForFloor(job)})
       : await observeV3({
           ...current,
           speakerId: job.run_id.slice(0, 8) + "/" + (job.speaker_id ?? "speaker_unknown"),
