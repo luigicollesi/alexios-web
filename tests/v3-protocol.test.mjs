@@ -78,7 +78,7 @@ test("all eight avatar states are deterministic and stay inside local character 
   assert.equal(chooseCharacterFrame(false, false, 2), "waiting_2");
 });
 
-test("invalid or truncated OBSERVE JSON never blocks transcript preservation", () => {
+test("invalid OBSERVE JSON preserves previous semantic memory without replay", () => {
   assert.throws(() => parseObserve('{"context":"Uma frase interrompida'));
   const repaired = fallbackObserve({
     context: "Pessoa A deseja construir um assistente.",
@@ -86,8 +86,9 @@ test("invalid or truncated OBSERVE JSON never blocks transcript preservation", (
     speakerId: "speaker_02", transcript: "Preciso que o Raspberry Pi funcione.",
   });
   assert.match(repaired.context, /Pessoa A deseja construir/);
-  assert.match(repaired.context, /speaker_02/);
-  assert.match(repaired.context, /Raspberry Pi funcione/);
+  assert.doesNotMatch(repaired.context, /speaker_02/);
+  assert.doesNotMatch(repaired.context, /Raspberry Pi funcione/);
+  assert.equal(repaired.degraded, true);
   assert.equal(repaired.stance, "crossed-arm");
   assert.equal(repaired.waitingVariant, 2);
   assert.equal(Object.hasOwn(repaired, "speech"), false);
@@ -103,12 +104,12 @@ test("degraded RESPOND always chooses silence and preserves existing memory", ()
   assert.equal(decision.speech, "");
 });
 
-test("fallback context remains bounded while preserving newest utterance", () => {
+test("fallback context stays bounded without appending raw new utterance", () => {
   const result = fallbackObserve({
     context: "a".repeat(3000),
     stance: "hand-in-pocket", waitingVariant: 1,
     speakerId: "speaker_01", transcript: "Fala recente válida.",
   });
   assert.ok(result.context.length <= 3000);
-  assert.match(result.context, /Fala recente válida/);
+  assert.doesNotMatch(result.context, /Fala recente válida/);
 });
