@@ -27,6 +27,7 @@ export type V3ConversationStatus = {
     reason: string | null;
     fastStatus?: string;
     fastModelMs?: number | null;
+    fastError?: string | null;
     receivedAt: string | null;
   };
 };
@@ -115,6 +116,8 @@ export function normalizeStatus(payload: unknown, now = Date.now()): AlexiosStat
           ? rawFloor.fastStatus.slice(0, 20) : "legacy",
         fastModelMs: typeof rawFloor.fastModelMs === "number" &&
           Number.isFinite(rawFloor.fastModelMs) ? rawFloor.fastModelMs : null,
+        fastError: typeof rawFloor.fastError === "string"
+          ? rawFloor.fastError.slice(0, 90) : null,
         receivedAt: typeof rawFloor.receivedAt === "string" ? rawFloor.receivedAt : null,
       } : null,
     } : null;
