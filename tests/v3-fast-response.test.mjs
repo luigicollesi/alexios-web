@@ -49,7 +49,7 @@ test("replaced run or disconnected agent invalidates response", () => {
 });
 
 test("stale floor expires, including model returning too late", () => {
-  assert.equal(fastFloorEligible({...base,receivedAtMs:now-6_100}),false);
+  assert.equal(fastFloorEligible({...base,receivedAtMs:now-FAST_FLOOR_TTL_MS-100}),false);
   assert.equal(fastFloorEligible({...base,receivedAtMs:now+10_000}),false);
   assert.equal(fastFloorEligible({...base,receivedAtMs:NaN}),false);
 });
