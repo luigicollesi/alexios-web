@@ -12,6 +12,7 @@ type Input = {
   mode: Task;
   speakerId?: string;
   transcript?: string;
+  recentTurns?: string;
 };
 
 function messages(input: Input) {
@@ -36,6 +37,7 @@ function messages(input: Input) {
   } else {
     rules.push(
       "MODO RESPOND: há uma abertura de fala, mas você pode permanecer em silêncio.",
+      "Quando a transcrição recente contiver uma pergunta dirigida ao Alexios, responda objetivamente.",
       "Fale apenas se solicitado explicitamente ou se houver intervenção claramente útil e apropriada.",
       "Não interrompa conversas casuais sem necessidade; evite repetir assuntos.",
       "Se decidir não falar, shouldSpeak=false e speech vazio.",
@@ -45,7 +47,11 @@ function messages(input: Input) {
   }
   const message = input.mode === "OBSERVE"
     ? "NOVA FALA [locutor " + input.speakerId + "]:\n" + input.transcript
-    : "Ninguém está falando. Avalie se há motivo para uma intervenção. Você pode optar por não falar.";
+    : "A fala terminou e existe um espaço de resposta. Avalie as últimas falas " +
+      "e responda quando houver pergunta explícita ao Alexios, sem inventar fatos. " +
+      "Se ninguém solicitou sua participação, você pode optar por não falar.\n" +
+      "TRANSCRIÇÕES RECENTES (podem conter erros de reconhecimento):\n" +
+      (input.recentTurns || "Nenhuma transcrição recente.");
   return [
     {role: "system", content: rules.join("\n")},
     {role: "system", content: "CONTEXTO COMPARTILHADO ATUAL:\n" + input.context.slice(0, 3000)},
