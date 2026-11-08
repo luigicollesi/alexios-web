@@ -18,7 +18,10 @@ async function authorizeV3(identity: {instanceId: string; runId: string}): Promi
 export async function syncV3(raw: unknown) {
   const identity = parseIdentity(raw);
   const {agentId, runId} = await authorizeV3(identity);
-  const rows = await query<{next_sequence: number | string}>(
+  const rows = await query<{
+    next_sequence: number | string;
+    recovery_event_id: string | null;
+  }>(
     `WITH eligible AS (
       SELECT agent_id FROM public.alexios_sessions
       WHERE agent_id = $1::uuid AND run_id = $2::uuid
@@ -31,7 +34,7 @@ export async function syncV3(raw: unknown) {
           WHEN alexios_v3_streams.active_run_id = EXCLUDED.active_run_id
           THEN alexios_v3_streams.activity_epoch ELSE 0 END,
         active_run_id = EXCLUDED.active_run_id, updated_at = now()
-      RETURNING agent_id, last_accepted_sequence
+      RETURNING agent_id, last_accepted_sequence, last_processed_sequence
     ), versioned AS (
       UPDATE public.alexios_sessions SET
         protocol_version = 3,
@@ -44,12 +47,20 @@ export async function syncV3(raw: unknown) {
       WHERE agent_id = $1::uuid AND EXISTS (SELECT 1 FROM synced)
       RETURNING agent_id
     )
-    SELECT last_accepted_sequence + 1 AS next_sequence
+    SELECT last_accepted_sequence + 1 AS next_sequence,
+      (SELECT event_id FROM public.alexios_v3_events e
+       WHERE e.agent_id = synced.agent_id
+         AND e.sequence = synced.last_processed_sequence + 1
+         AND e.status IN ('pending', 'running')
+       LIMIT 1) AS recovery_event_id
     FROM synced WHERE EXISTS (SELECT 1 FROM versioned)`,
     [agentId, runId],
   );
   if (!rows[0]) throw new AgentError(409, "Handshake V3 não autorizado.");
-  return {nextSequence: numeric(rows[0].next_sequence)};
+  return {
+    nextSequence: numeric(rows[0].next_sequence),
+    recoveryEventId: rows[0].recovery_event_id,
+  };
 }
 
 export async function activityV3(raw: unknown) {
