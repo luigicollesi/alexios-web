@@ -155,7 +155,7 @@ async function advance(
         context_text = CASE
           -- Never replace another inference's newer memory with a stale
           -- snapshot. A legitimate legacy RESPOND also refreshes context.
-          WHEN $8::boolean OR moved.active_run_id <> $5::uuid OR s.context_revision <> $16::bigint THEN s.context_text
+          WHEN $8::boolean OR $14::boolean OR moved.active_run_id <> $5::uuid OR s.context_revision <> $16::bigint THEN s.context_text
           WHEN $4::text = 'floor_open'
             AND (moved.active_run_id <> $5::uuid
                  OR moved.activity_epoch <> $6::bigint
@@ -164,7 +164,7 @@ async function advance(
           THEN s.context_text
           ELSE $9::text END,
         context_revision = CASE
-          WHEN $8::boolean OR moved.active_run_id <> $5::uuid OR s.context_revision <> $16::bigint
+          WHEN $8::boolean OR $14::boolean OR moved.active_run_id <> $5::uuid OR s.context_revision <> $16::bigint
             THEN s.context_revision
           WHEN $4::text = 'floor_open'
             AND (moved.active_run_id <> $5::uuid
@@ -174,7 +174,7 @@ async function advance(
             THEN s.context_revision
           ELSE s.context_revision + 1 END,
         character_stance = CASE
-          WHEN $8::boolean OR moved.active_run_id <> $5::uuid OR s.context_revision <> $16::bigint
+          WHEN $8::boolean OR $14::boolean OR moved.active_run_id <> $5::uuid OR s.context_revision <> $16::bigint
             OR ($4::text = 'floor_open'
               AND (moved.active_run_id <> $5::uuid
                    OR moved.activity_epoch <> $6::bigint
@@ -182,7 +182,7 @@ async function advance(
                    OR now() - $7::timestamptz >= interval '60 seconds'))
           THEN s.character_stance ELSE $10::text END,
         character_waiting_variant = CASE
-          WHEN $8::boolean OR moved.active_run_id <> $5::uuid OR s.context_revision <> $16::bigint
+          WHEN $8::boolean OR $14::boolean OR moved.active_run_id <> $5::uuid OR s.context_revision <> $16::bigint
             OR ($4::text = 'floor_open'
               AND (moved.active_run_id <> $5::uuid
                    OR moved.activity_epoch <> $6::bigint
@@ -260,7 +260,7 @@ async function advance(
             OR moved.activity_epoch > $6::bigint
             OR $4::text = 'turn_chunk' THEN 'listening'
           ELSE 'idle' END,
-        last_ai_at = CASE WHEN $8::boolean THEN s.last_ai_at ELSE now() END,
+        last_ai_at = CASE WHEN $8::boolean OR $14::boolean THEN s.last_ai_at ELSE now() END,
         last_error = CASE WHEN $14::boolean
           THEN 'OpenRouter indisponível ou respondeu JSON inválido; modo de recuperação.'
           ELSE NULL END,
