@@ -22,8 +22,9 @@ type Turn = {speaker_id: string | null; transcript: string | null; run_id: strin
 
 const fastModelName = () =>
   process.env.ALEXIOS_V3_FAST_MODEL?.trim() ||
-  process.env.OPENROUTER_MODEL?.trim() ||
-  "nvidia/nemotron-3-ultra-550b-a55b:free";
+  // Dedicated, currently free model; OBSERVE retains its configured model.
+  // The paid Gemini Flash Lite model is available as an explicit opt-in.
+  "google/gemma-4-26b-a4b-it:free";
 
 async function claim(eventId: string, token: string): Promise<ClaimedFastFloor | null> {
   const rows = await query<ClaimedFastFloor>(
@@ -87,6 +88,10 @@ async function decideSpeech(floor: ClaimedFastFloor, recentTurns: string) {
       temperature: 0.15,
       max_tokens: 160,
       stream: false,
+      // Gemma 4 and Gemini Flash Lite support JSON-object output.
+      // Do not send it indiscriminately to models without that capability.
+      ...(/^(google\\/gemma-4|google\\/gemini)/.test(model)
+        ? {response_format: {type: "json_object"}} : {}),
       messages: [
         {role:"system", content:
           "Você é Alexios, assistente de conversação em português brasileiro. " +
