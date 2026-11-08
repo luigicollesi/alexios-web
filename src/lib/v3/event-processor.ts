@@ -151,20 +151,27 @@ async function advance(
     ), persisted AS (
       UPDATE public.alexios_sessions s SET
         context_text = CASE
-          -- Only OBSERVE may update the semantic memory. RESPOND consumes speech
-          -- but never turns previous questions into a new persistent context.
-          WHEN $4::text = 'floor_open' THEN s.context_text
-          WHEN $8::boolean THEN s.context_text
+          -- Never replace another inference's newer memory with a stale
+          -- snapshot. A legitimate legacy RESPOND also refreshes context.
+          WHEN $8::boolean OR s.context_text <> $16::text THEN s.context_text
+          WHEN $4::text = 'floor_open'
+            AND (moved.active_run_id <> $5::uuid
+                 OR moved.activity_epoch <> $6::bigint
+                 OR s.power <> 'running' OR s.desired_power <> 'running'
+                 OR now() - $7::timestamptz >= interval '60 seconds')
+          THEN s.context_text
           ELSE $9::text END,
         character_stance = CASE
-          WHEN $8::boolean OR ($4::text = 'floor_open'
+          WHEN $8::boolean OR s.context_text <> $16::text
+            OR ($4::text = 'floor_open'
               AND (moved.active_run_id <> $5::uuid
                    OR moved.activity_epoch <> $6::bigint
                    OR s.power <> 'running' OR s.desired_power <> 'running'
                    OR now() - $7::timestamptz >= interval '60 seconds'))
           THEN s.character_stance ELSE $10::text END,
         character_waiting_variant = CASE
-          WHEN $8::boolean OR ($4::text = 'floor_open'
+          WHEN $8::boolean OR s.context_text <> $16::text
+            OR ($4::text = 'floor_open'
               AND (moved.active_run_id <> $5::uuid
                    OR moved.activity_epoch <> $6::bigint
                    OR s.power <> 'running' OR s.desired_power <> 'running'
@@ -294,7 +301,8 @@ async function advance(
      obsolete, decision?.context ?? data.context_text,
      decision?.stance ?? data.character_stance,
      decision?.waitingVariant ?? data.character_waiting_variant,
-     response, data.event_id, decision?.degraded === true, obsoleteReason],
+     response, data.event_id, decision?.degraded === true, obsoleteReason,
+     data.context_text],
   );
   return {
     advanced: Boolean(rows[0]),
@@ -305,7 +313,7 @@ async function advance(
 
 async function recentTurnsForFloor(event: Claimed): Promise<string> {
   const rows = await query<FloorTurn>(FRESH_FLOOR_TURNS_SQL, [
-    event.agent_id, event.run_id, numeric(event.sequence), event.received_at,
+    event.agent_id, event.run_id, numeric(event.sequence),
   ]);
   return formatFreshFloorTurns(rows);
 }
