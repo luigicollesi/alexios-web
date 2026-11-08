@@ -20,6 +20,7 @@ type Claimed = {
   activity_epoch: string | number;
   received_at: string;
   context_text: string;
+  context_revision: string | number;
   character_stance: Stance;
   character_waiting_variant: number;
   character_frame: Frame;
@@ -60,7 +61,7 @@ async function claim(eventId: string, token: string): Promise<Claimed | null> {
     )
     SELECT e.event_id, e.agent_id, e.run_id, e.sequence,
       e.event_type, e.fast_status, e.transcript, e.speaker_id, e.activity_epoch, e.received_at,
-      s.context_text, s.character_stance, s.character_waiting_variant, s.character_frame,
+      s.context_text, s.context_revision, s.character_stance, s.character_waiting_variant, s.character_frame,
       st.latest_activity, st.active_run_id, s.power, s.desired_power
     FROM marked e JOIN reserved st ON e.agent_id = st.agent_id
       JOIN public.alexios_sessions s ON s.agent_id = e.agent_id`,
@@ -154,7 +155,7 @@ async function advance(
         context_text = CASE
           -- Never replace another inference's newer memory with a stale
           -- snapshot. A legitimate legacy RESPOND also refreshes context.
-          WHEN $8::boolean OR s.context_text <> $16::text THEN s.context_text
+          WHEN $8::boolean OR s.context_revision <> $16::bigint THEN s.context_text
           WHEN $4::text = 'floor_open'
             AND (moved.active_run_id <> $5::uuid
                  OR moved.activity_epoch <> $6::bigint
@@ -162,8 +163,18 @@ async function advance(
                  OR now() - $7::timestamptz >= interval '60 seconds')
           THEN s.context_text
           ELSE $9::text END,
+        context_revision = CASE
+          WHEN $8::boolean OR s.context_revision <> $16::bigint
+            THEN s.context_revision
+          WHEN $4::text = 'floor_open'
+            AND (moved.active_run_id <> $5::uuid
+                 OR moved.activity_epoch <> $6::bigint
+                 OR s.power <> 'running' OR s.desired_power <> 'running'
+                 OR now() - $7::timestamptz >= interval '60 seconds')
+            THEN s.context_revision
+          ELSE s.context_revision + 1 END,
         character_stance = CASE
-          WHEN $8::boolean OR s.context_text <> $16::text
+          WHEN $8::boolean OR s.context_revision <> $16::bigint
             OR ($4::text = 'floor_open'
               AND (moved.active_run_id <> $5::uuid
                    OR moved.activity_epoch <> $6::bigint
@@ -171,7 +182,7 @@ async function advance(
                    OR now() - $7::timestamptz >= interval '60 seconds'))
           THEN s.character_stance ELSE $10::text END,
         character_waiting_variant = CASE
-          WHEN $8::boolean OR s.context_text <> $16::text
+          WHEN $8::boolean OR s.context_revision <> $16::bigint
             OR ($4::text = 'floor_open'
               AND (moved.active_run_id <> $5::uuid
                    OR moved.activity_epoch <> $6::bigint
@@ -303,7 +314,7 @@ async function advance(
      decision?.stance ?? data.character_stance,
      decision?.waitingVariant ?? data.character_waiting_variant,
      response, data.event_id, decision?.degraded === true, obsoleteReason,
-     data.context_text],
+     numeric(data.context_revision)],
   );
   return {
     advanced: Boolean(rows[0]),
