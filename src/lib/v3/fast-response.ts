@@ -68,6 +68,7 @@ async function decideSpeech(floor: ClaimedFastFloor, recentTurns: string) {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error("OPENROUTER_API_KEY ausente.");
   const candidates = fastModelCandidates({
+    shared: process.env.OPENROUTER_MODEL,
     primary: process.env.ALEXIOS_V3_FAST_MODEL,
     fallback: process.env.ALEXIOS_V3_FAST_FALLBACK_MODEL,
     timeoutMs: process.env.ALEXIOS_V3_FAST_MODEL_TIMEOUT_MS,
