@@ -1,5 +1,6 @@
 import {handleCallback, send} from "@vercel/queue";
 import {query} from "@/lib/agent-db";
+import {wakeNextPendingV3} from "@/lib/v3/drain-logic";
 import {processEventV3, V3DeferredError} from "@/lib/v3/event-processor";
 
 export const runtime = "nodejs";
@@ -45,12 +46,16 @@ export const POST = handleCallback(async (message: unknown) => {
   // sequential event to make progress. A separate idempotency key is
   // essential: the original message may already have been acknowledged,
   // delivered too early, or be in exponential retry backoff.
-  const nextEventId = await nextPendingEventV3(eventId);
+  const nextEventId = await wakeNextPendingV3(
+    eventId,
+    nextPendingEventV3,
+    async (eventIdToQueue, idempotencyKey) => {
+      await send("alexios-events-v3", {eventId: eventIdToQueue}, {
+        idempotencyKey, delaySeconds: 1,
+      });
+    },
+  );
   if (nextEventId) {
-    await send("alexios-events-v3", {eventId: nextEventId}, {
-      idempotencyKey: "v3-drain-" + eventId,
-      delaySeconds: 1,
-    });
     console.info("[Alexios V3] próximo evento reativado", {
       previousEventId: eventId,
       nextEventId,
