@@ -173,7 +173,7 @@ export async function acceptV3Event(raw: unknown, type: V3EventKind) {
     );
   }
 
-  const rows = await query<{event_id: string; ignored: boolean}>( 
+  const rows = await query<{event_id: string; ignored: boolean}>(
     `WITH accepted AS (
       UPDATE public.alexios_v3_streams st SET
         last_accepted_sequence = $3::bigint, updated_at = now()
@@ -202,6 +202,8 @@ export async function acceptV3Event(raw: unknown, type: V3EventKind) {
         JOIN public.alexios_sessions s ON s.agent_id = p.agent_id
         WHERE p.agent_id = $1::uuid AND p.run_id = $2::uuid
           AND p.run_id = s.run_id AND p.expires_at > now()
+          AND s.power = 'running' AND s.desired_power = 'running'
+          AND s.power = 'running' AND s.desired_power = 'running'
       ) AS ignored
     ), inserted AS (
       INSERT INTO public.alexios_v3_events
