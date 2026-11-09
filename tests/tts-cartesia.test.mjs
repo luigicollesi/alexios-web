@@ -5,6 +5,7 @@ import {
 } from "../src/lib/tts/key-manager.ts";
 import { PcmF32Chunker } from "../src/lib/tts/pcm.ts";
 import { currentSpeechForTts } from "../src/lib/tts/speech-gate.ts";
+import { playbackAvatar } from "../src/lib/tts/voice-avatar.ts";
 
 test("voice is pinned to Rafael and comma-separated keys are ordered and unique", () => {
   assert.equal(CARTESIA_VOICE_ID, "07b6f895-78b9-4921-8e10-8a21c99c2e8a");
@@ -126,4 +127,24 @@ test("newer input turn invalidates old audio; very old or empty replies are refu
     },
   };
   assert.equal(currentSpeechForTts(empty, 12, 17, now), null);
+});
+
+test("speaking pose tracks actual playback, not the server's estimated timer", () => {
+  const original = {
+    stance: "hand-in-pocket",
+    frame: "speaking",
+    src: "/characters/stand/hand-in-pocket/speaking.png",
+  };
+  const before = playbackAvatar("speaking", original, true, false);
+  assert.equal(before.expression, "idle");
+  assert.equal(before.visual.frame, "waiting_1");
+  const playing = playbackAvatar("idle", original, true, true);
+  assert.equal(playing.expression, "speaking");
+  assert.equal(playing.visual.frame, "speaking");
+  const after = playbackAvatar("speaking", original, true, false);
+  assert.equal(after.expression, "idle");
+  assert.equal(after.visual.frame, "waiting_1");
+  const disabled = playbackAvatar("speaking", original, false, false);
+  assert.equal(disabled.expression, "speaking");
+  assert.equal(disabled.visual, original);
 });
