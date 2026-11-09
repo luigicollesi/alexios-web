@@ -13,7 +13,7 @@ test("a self introduction binds speaker_03 = Luigi in variable memory", () => {
     generated:"O tema é desenvolvimento de software.",
     runId:runA,
     speakerId:runA.slice(0,8) + "/speaker_03",
-    freshSpeech:"Meu nome é Luigi.",
+    freshSpeech:"Meu nome é Luigi.",continuousSpeechMs:2400,
   });
   assert.match(context,/speaker_03 = Luigi/);
   assert.match(context,/Vozes da execucao 6c2dc782/);
@@ -24,7 +24,7 @@ test("a self introduction binds speaker_03 = Luigi in variable memory", () => {
 test("a second inference keeps the mapping even if the LLM forgets it", () => {
   const previous = mergeSpeakerContext({
     previous:"Resumo",generated:"Resumo",runId:runA,
-    speakerId:"speaker_03",freshSpeech:"Me chamo Luigi",
+    speakerId:"speaker_03",freshSpeech:"Me chamo Luigi",continuousSpeechMs:2500,
   });
   const current = mergeSpeakerContext({
     previous,generated:"Novo resumo do dia.",runId:runA,
@@ -38,14 +38,14 @@ test("a second inference keeps the mapping even if the LLM forgets it", () => {
 test("a new run drops the old diarizer mapping", () => {
   const a = mergeSpeakerContext({
     previous:"Tema anterior",generated:"Tema anterior",runId:runA,
-    speakerId:"speaker_03",freshSpeech:"Eu me chamo Luigi",
+    speakerId:"speaker_03",freshSpeech:"Eu me chamo Luigi",continuousSpeechMs:2200,
   });
   const b = contextForRun(a,runB);
   assert.doesNotMatch(b,/speaker_03 = Luigi/);
   assert.match(b,/Tema anterior/);
   const c = mergeSpeakerContext({
     previous:a,generated:"Nova execução",runId:runB,
-    speakerId:"speaker_03",freshSpeech:"me chamo Ana",
+    speakerId:"speaker_03",freshSpeech:"me chamo Ana",continuousSpeechMs:2300,
   });
   assert.match(c,/speaker_03 = Ana/);
   assert.doesNotMatch(c,/speaker_03 = Luigi/);
@@ -65,22 +65,42 @@ test("name-only questions and third-party mentions do not assign a name", () => 
   assert.equal(explicitNameIntroduction("me chamo Ana"),"Ana");
 });
 
-test("OBSERVE and Fast both can confirm a name without repeating prior questions", () => {
+test("Fast and unknown voices do not register a name without a >=2s verified turn", () => {
   const fromFloor=mergeSpeakerContext({
     previous:"Trabalho em equipe.",generated:"Trabalho em equipe.",
     runId:runA,
     freshSpeech:"[6c2dc782/speaker_03]: Meu nome é Luigi",
   });
-  assert.match(fromFloor,/speaker_03 = Luigi/);
+  assert.doesNotMatch(fromFloor,/speaker_03 = Luigi/);
   const core=v3Messages({
     context:fromFloor,runId:runA,stance:"hand-in-pocket",
     waitingVariant:1,frame:"waiting_1",
-    freshSpeech:"[6c2dc782/speaker_03]: Qual o próximo passo?",
+    freshSpeech:"[6c2dc782/speaker_unknown]: Qual o próximo passo?",
     responseWindow:true,
   });
-  assert.match(core[0].content,/speaker_03 são rótulos automáticos/);
-  assert.match(core[1].content,/speaker_03 = Luigi/);
-  assert.doesNotMatch(core[2].content,/me chamo Luigi/);
+  assert.match(core[0].content,/speaker_unknown não identifica nem registra/);
+  assert.doesNotMatch(core[1].content,/speaker_03 = Luigi/);
+  const unknown=mergeSpeakerContext({
+    previous:fromFloor,generated:"Trabalho em equipe.",runId:runA,
+    freshSpeech:"Meu nome é Luigi e estou falando há mais de dois segundos.",
+    speakerId:"speaker_unknown",continuousSpeechMs:3000,
+  });
+  assert.doesNotMatch(unknown,/speaker_unknown =|speaker_03 = Luigi/);
+});
+
+test("a brief introduction does not create a speaker identity", () => {
+  const short = mergeSpeakerContext({
+    previous:"Tema programação.",generated:"Tema programação.",runId:runA,
+    speakerId:"speaker_03",freshSpeech:"Meu nome é Luigi",
+    continuousSpeechMs:1999,
+  });
+  assert.doesNotMatch(short,/speaker_03 = Luigi/);
+  const long = mergeSpeakerContext({
+    previous:short,generated:"Tema programação.",runId:runA,
+    speakerId:"speaker_03",freshSpeech:"Meu nome é Luigi",
+    continuousSpeechMs:2000,
+  });
+  assert.match(long,/speaker_03 = Luigi/);
 });
 
 test("model-generated unconfirmed speaker assignments are not trusted", () => {
@@ -96,11 +116,11 @@ test("model-generated unconfirmed speaker assignments are not trusted", () => {
 test("speaker mapping remains bounded and does not repeat", () => {
   const previous = mergeSpeakerContext({
     previous:"X".repeat(1800),generated:"X".repeat(1800),runId:runA,
-    speakerId:"speaker_03",freshSpeech:"Meu nome é Luigi",
+    speakerId:"speaker_03",freshSpeech:"Meu nome é Luigi",continuousSpeechMs:2300,
   });
   const again=mergeSpeakerContext({
     previous,generated:previous,runId:runA,
-    speakerId:"speaker_03",freshSpeech:"Meu nome é Luigi",
+    speakerId:"speaker_03",freshSpeech:"Meu nome é Luigi",continuousSpeechMs:2300,
   });
   assert.equal((again.match(/speaker_03 = Luigi/g)||[]).length,1);
   assert.ok(again.length <= 1200);
