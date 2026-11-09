@@ -1,7 +1,7 @@
 import "server-only";
-import {createHash} from "node:crypto";
+
 import { AgentError, query, numeric } from "@/lib/agent-db";
-import { connected, findInstance, sessionFor } from "@/lib/v2/agent-service";
+import { connected, findInstance, sessionFor, keyedDigest } from "@/lib/v2/agent-service";
 import { parseIdentity, parseActivity, parseV3Event, type IncomingEvent, type V3EventKind } from "@/lib/v3/protocol";
 import {fastLaneEnabled} from "@/lib/v3/fast-protocol";
 import {latestUtteranceFromCumulative} from "@/lib/v3/transcript-delta";
@@ -130,7 +130,7 @@ export async function acceptV3Event(raw: unknown, type: V3EventKind) {
   const event = parseV3Event(raw, type);
   const {agentId, runId} = await authorizeV3(event);
   const payload = eventPayload(event);
-  const payloadHash = createHash("sha256").update(canon(payload)).digest("hex");
+  const payloadHash = keyedDigest("v3-discard-event:" + canon(payload));
   type Existing = {agent_id: string; run_id: string; sequence: string | number;
                    event_type: string; activity_epoch: string | number;
                    payload: Record<string, unknown>};
