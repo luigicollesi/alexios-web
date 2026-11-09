@@ -78,6 +78,40 @@ O modelo pode intervir por valor contextual mesmo sem qualquer heurística;
 se a rede falhar, as proteções de `runId`, `activityEpoch`, validade e FIM
 continuam sendo necessárias para publicar fala.
 
+## Transcrições incrementais e identidade provisória de vozes
+
+O agente Python pode enviar uma transcrição cumulativa: por exemplo, depois
+de `Alô?` o próximo evento pode conter `Alô? Seu nome é Alexios mesmo?`.
+Ao receber o evento, o backend compara um prefixo completo com o turno
+anterior da **mesma execução**, com distância máxima de 45 segundos.
+Somente quando houver uma continuação textual efetiva, grava o trecho novo
+em `alexios_v3_events.transcript`, preservando o
+`payload.transcript` original para auditoria e idempotência. O painel também
+normaliza o último evento já registrado, sem editar eventos históricos.
+Ao iniciar nova execução, não apresenta o último turno de uma execução antiga.
+
+Rótulos de diarização (`speaker_01`, `speaker_03`, etc.) não são nomes
+nem uma identidade biométrica. Um mesmo locutor pode ganhar IDs diferentes
+durante a conversa. Se a pessoa informar diretamente `Me chamo Luigi`,
+o backend registra na memória variável da execução atual, por exemplo:
+
+```text
+[Vozes da execucao 6c2dc782]
+speaker_03 = Luigi
+```
+
+A associação é provisória, não passa para a próxima execução e não se
+baseia em menção a terceiros ou em nomes inventados pelo modelo.
+O núcleo da persona autoriza pedir o nome quando necessário e oportuno,
+sem repetir a pergunta toda vez que o diarizador mudar o rótulo.
+O modelo recebe o mapa atual, mas o servidor preserva as associações
+confirmadas mesmo se uma inferência reescrever o resumo e as descartar.
+
+**A validação não exige deployment:** testes, lint, tipos e build são
+executados no GitHub Actions. O `vercel.json` limita deployments Git à
+`main`, evitando previews das branches. Fazer merge somente após CI aprovado;
+um único deployment final deve ser suficiente.
+
 ## Isolamento das perguntas
 
 O SQL `FRESH_FLOOR_TURNS_SQL` usa a última fronteira `floor_open` do mesmo
