@@ -65,7 +65,7 @@ export async function POST(request: Request, context: Context) {
     await send("alexios-events-v3", {eventId: ack.eventId}, {
       idempotencyKey: ack.eventId, delaySeconds: 0,
     });
-    if (kind === "floor_open" && fastLaneEnabled()) {
+    if (kind === "floor_open" && fastLaneEnabled() && !ack.ignored) {
       // HTTP 202 immediately acknowledges durable intake. Inference runs
       // after the response; the V3 queue remains a durable recovery path.
       after(async () => {
@@ -88,6 +88,7 @@ export async function POST(request: Request, context: Context) {
     }
     console.info("[Alexios V3] evento aceito", {
       kind, eventId: ack.eventId, duplicate: ack.duplicate,
+      ignoredDuringPlayback: ack.ignored,
     });
     return Response.json({accepted: true}, {
       status: 202, headers: {"Cache-Control": "no-store"},
