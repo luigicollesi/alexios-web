@@ -1,7 +1,7 @@
 # V3 — não escutar durante reprodução
 
 O Alexios V3 permanece capaz de conversar normalmente entre respostas,
-mas **descarta eventos recebidos enquanto Rafael está efetivamente falando**.
+mas **descarta eventos recebidos enquanto sua voz está efetivamente tocando**.
 O navegador autorizado informa início, pulsos a cada 2 s e fim da reprodução
 à rota `POST /api/v2/alexios/playback`. Cada instância do player recebe
 `playbackId` distinto e mantém um lease com expiração de 6 s.
@@ -66,7 +66,7 @@ npm run build
 ```
 
 Teste no navegador com a API e o banco configurados: falar perto do microfone
-enquanto Rafael fala; confirmar que o texto é ignorado no servidor e a voz
+enquanto o Alexios fala; confirmar que o texto é ignorado no servidor e a voz
 não é cortada. Aguardar o fim, falar novamente e verificar nova resposta.
 Confirmar que um nome dito rapidamente ou por `speaker_unknown` não cria
 vínculo, mas uma apresentação explícita com turno >=2 s pode criá-lo.
