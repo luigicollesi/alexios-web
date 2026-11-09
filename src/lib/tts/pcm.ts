@@ -7,7 +7,10 @@ import { CARTESIA_BYTES_PER_SAMPLE } from "./key-manager.ts";
  */
 export class PcmF32Chunker {
   private pending = new Uint8Array(0);
-  constructor(private readonly framesPerChunk = 2048) {
+  private readonly framesPerChunk: number;
+
+  constructor(framesPerChunk = 2048) {
+    this.framesPerChunk = framesPerChunk;
     if (!Number.isSafeInteger(framesPerChunk) || framesPerChunk < 1) {
       throw new Error("Invalid PCM frame count.");
     }
