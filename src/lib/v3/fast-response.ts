@@ -3,9 +3,9 @@ import {randomUUID} from "node:crypto";
 import {query, numeric} from "@/lib/agent-db";
 import {fastFloorEligible, parseFastDecision, type FastDecision} from "@/lib/v3/fast-protocol";
 import {v3Messages} from "@/lib/v3/persona-core";
-import {directRequestKind} from "@/lib/v3/response-intent";
+import {repairDirectSilence, type ResponseCues} from "@/lib/v3/response-intent";
 import type {Stance, Frame} from "@/lib/v3/protocol";
-import {FRESH_FLOOR_TURNS_SQL, formatFreshFloorTurns, type FloorTurn}
+import {FRESH_FLOOR_TURNS_SQL, formatFreshFloorTurns, responseCuesForFloor, type FloorTurn}
   from "@/lib/v3/floor-turns";
 import {
   fastModelCandidates, fastCompletionBody, fastFailureCode,
@@ -20,6 +20,7 @@ type ClaimedFastFloor = {
   sequence: string | number;
   activity_epoch: string | number;
   received_at: string;
+  silence_ms: string | number | null;
   context_text: string;
   context_revision: string | number;
   character_stance: Stance;
@@ -43,7 +44,8 @@ async function claim(eventId: string, token: string): Promise<ClaimedFastFloor |
       RETURNING *
     )
     SELECT e.event_id, e.agent_id, e.run_id, e.sequence, e.activity_epoch,
-      e.received_at, s.context_text, s.context_revision, s.character_stance,
+      e.received_at, e.payload->>'silenceMs' AS silence_ms,
+      s.context_text, s.context_revision, s.character_stance,
       s.character_waiting_variant, s.character_frame, st.active_run_id,
       st.activity_epoch AS latest_activity, s.power, s.desired_power,
       (s.last_poll_at > now() - interval '45 seconds'
@@ -56,14 +58,20 @@ async function claim(eventId: string, token: string): Promise<ClaimedFastFloor |
   return rows[0] || null;
 }
 
-async function fetchTurns(floor: ClaimedFastFloor): Promise<string> {
+async function fetchTurns(floor: ClaimedFastFloor): Promise<{
+  freshTurns: string; cues: ResponseCues;
+}> {
   const rows = await query<FloorTurn>(FRESH_FLOOR_TURNS_SQL, [
     floor.agent_id, floor.run_id, numeric(floor.sequence),
   ]);
-  return formatFreshFloorTurns(rows, 360, 2400);
+  return {
+    freshTurns: formatFreshFloorTurns(rows, 360, 2400),
+    cues: responseCuesForFloor(rows, floor.silence_ms),
+  };
 }
 
-async function decideSpeech(floor: ClaimedFastFloor, recentTurns: string) {
+async function decideSpeech(floor: ClaimedFastFloor,
+  recentTurns: string, responseCues: ResponseCues) {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error("OPENROUTER_API_KEY ausente.");
   const candidates = fastModelCandidates({
@@ -79,6 +87,7 @@ async function decideSpeech(floor: ClaimedFastFloor, recentTurns: string) {
     frame: floor.character_frame,
     freshSpeech: recentTurns,
     responseWindow: true,
+    responseCues,
   });
   let lastError: unknown = new Error("No response received");
   const t0 = Date.now();
@@ -100,13 +109,12 @@ async function decideSpeech(floor: ClaimedFastFloor, recentTurns: string) {
       });
       if (!response.ok) throw new FastProviderHttpError(response.status);
       const data: unknown = await response.json();
-      const decision = parseFastDecision(openRouterCompletionText(data));
-      if (!decision.shouldSpeak && directRequestKind(recentTurns)) {
-        // An obvious question or connection check is not ambient silence.
-        // Allow the durable queued RESPOND a second interpretation instead
-        // of discarding this speech window.
-        throw new Error("direct_request_silent");
-      }
+      // The model owns ordinary turn-taking. A deterministic clarification is
+      // allowed only for explicit address or a solitary observed voice making
+      // an ambiguous connection check after a real pause.
+      const decision = repairDirectSilence(
+        parseFastDecision(openRouterCompletionText(data)), recentTurns, responseCues,
+      );
       return {
         ...decision,
         modelMs: Date.now() - attemptedAt,
@@ -253,11 +261,11 @@ export async function processFastFloorV3(eventId: string): Promise<void> {
       return;
     }
     const recent = await fetchTurns(current);
-    if (!recent.trim()) {
+    if (!recent.freshTurns.trim()) {
       await failFast(eventId, token, "no_recent_turns");
       return;
     }
-    const result = await decideSpeech(current, recent);
+    const result = await decideSpeech(current, recent.freshTurns, recent.cues);
     const saved = await finalize(current, token, result, result.modelMs);
     console.info("[Alexios V3 FAST] finalizado", {
       eventId,
