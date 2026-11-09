@@ -721,3 +721,36 @@
 @media (prefers-reduced-motion: reduce) {
   .console-stage--refined .response-focus-indicator { animation: none !important; }
 }
+
+/* Cartesia Sonic 3.6 playback feedback. No extra diagnostic HUD. */
+.console-stage--refined .response-voice-status {
+  color: #ff9fb3;
+  font: 700 9px/1.4 monospace;
+  letter-spacing: .12em;
+  padding-left: 8px;
+}
+.console-stage--refined .response-focus--speaking .response-voice-status {
+  color: #ffd2db;
+  text-shadow: 0 0 12px rgba(255, 83, 114, .44);
+}
+.console-stage--refined .tts-feedback {
+  color: #ffb9c7;
+  margin: 0 0 8px;
+  font-size: 11px;
+  line-height: 1.35;
+  max-height: 35px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+.console-stage--refined .response-focus:has(.tts-feedback) .response-focus-text {
+  max-height: 82px;
+}
+@media (max-width: 580px) {
+  .console-stage--refined .response-voice-status {
+    font-size: 8px;
+    letter-spacing: .04em;
+  }
+  .console-stage--refined .response-voice-button span {
+    white-space: nowrap;
+  }
+}
