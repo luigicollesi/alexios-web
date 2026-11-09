@@ -1,4 +1,4 @@
-import { CARTESIA_BYTES_PER_SAMPLE } from "./key-manager";
+import { CARTESIA_BYTES_PER_SAMPLE } from "./key-manager.ts";
 
 /**
  * Cartesia streams raw little-endian float32 PCM. HTTP chunk boundaries have
