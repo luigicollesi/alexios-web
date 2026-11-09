@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import { useAlexiosVoice } from "@/hooks/use-alexios-voice";
+import { playbackAvatar } from "@/lib/tts/voice-avatar";
 import {
   derivePowerView, EXPRESSION_LABELS, normalizeStatus,
   type AlexiosStatus, type ExpressionId, type PowerAction, type CharacterVisual,
@@ -236,24 +237,12 @@ export function ControlConsoleV2() {
 
   const powerView = derivePowerView(snapshot);
   const live = powerView !== "offline";
-  // V3 backend estimates speaking for 3-12 seconds. With Cartesia enabled,
-  // the real browser playback clock must override that estimated state.
-  const serverExpression = snapshot?.core.expressionId ?? "idle";
-  const usingCartesia = voiceEnabled && snapshot?.core.protocolVersion === 3;
-  const expression = usingCartesia
-    ? isPlaying ? "speaking" : serverExpression === "speaking" ? "idle" : serverExpression
-    : serverExpression;
-  const avatarVisual = useMemo(() => {
-    const current = snapshot?.core.character;
-    if (!current || !usingCartesia) return current;
-    const frame = isPlaying ? "speaking" :
-      current.frame === "speaking" ? "waiting_1" : current.frame;
-    return {
-      ...current,
-      frame,
-      src: `/characters/stand/${current.stance}/${frame}.png`,
-    };
-  }, [snapshot?.core.character, usingCartesia, isPlaying]);
+  const { expression, visual: avatarVisual } = playbackAvatar(
+    snapshot?.core.expressionId ?? "idle",
+    snapshot?.core.character,
+    voiceEnabled && snapshot?.core.protocolVersion === 3,
+    isPlaying,
+  );
   const labels = statusCopy(powerView);
 
   useEffect(() => {
