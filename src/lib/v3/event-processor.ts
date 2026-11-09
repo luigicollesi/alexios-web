@@ -2,7 +2,7 @@ import "server-only";
 import {randomUUID} from "node:crypto";
 import {query, numeric} from "@/lib/agent-db";
 import {observeV3, respondV3} from "@/lib/v3/model-service";
-import {FRESH_FLOOR_TURNS_SQL, formatFreshFloorTurns, type FloorTurn}
+import {FRESH_FLOOR_TURNS_SQL, formatFreshFloorTurns, responseCuesForFloor, type FloorTurn}
   from "@/lib/v3/floor-turns";
 import type {Stance, Frame} from "@/lib/v3/protocol";
 import {floorRejectReason} from "@/lib/v3/floor-policy";
@@ -19,6 +19,7 @@ type Claimed = {
   speaker_id: string | null;
   activity_epoch: string | number;
   received_at: string;
+  silence_ms: string | number | null;
   context_text: string;
   context_revision: string | number;
   character_stance: Stance;
@@ -61,6 +62,7 @@ async function claim(eventId: string, token: string): Promise<Claimed | null> {
     )
     SELECT e.event_id, e.agent_id, e.run_id, e.sequence,
       e.event_type, e.fast_status, e.transcript, e.speaker_id, e.activity_epoch, e.received_at,
+      e.payload->>'silenceMs' AS silence_ms,
       s.context_text, s.context_revision, s.character_stance, s.character_waiting_variant, s.character_frame,
       st.latest_activity, st.active_run_id, s.power, s.desired_power
     FROM marked e JOIN reserved st ON e.agent_id = st.agent_id
@@ -325,11 +327,14 @@ async function advance(
   };
 }
 
-async function recentTurnsForFloor(event: Claimed): Promise<string> {
+async function recentTurnsForFloor(event: Claimed) {
   const rows = await query<FloorTurn>(FRESH_FLOOR_TURNS_SQL, [
     event.agent_id, event.run_id, numeric(event.sequence),
   ]);
-  return formatFreshFloorTurns(rows);
+  return {
+    text: formatFreshFloorTurns(rows),
+    cues: responseCuesForFloor(rows, event.silence_ms),
+  };
 }
 
 function floorInvalidReason(data: Claimed): string | null {
@@ -409,8 +414,10 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
     // A floor with no new speech is consumed silently, without another
     // provider request or any opportunity to replay old questions.
     const decision = job.event_type === "floor_open"
-      ? freshTurns
-        ? await respondV3({...current, recentTurns: freshTurns})
+      ? freshTurns?.text
+        ? await respondV3({
+            ...current, recentTurns: freshTurns.text, responseCues: freshTurns.cues,
+          })
         : {...current, shouldSpeak: false, speech: ""}
       : await observeV3({
           ...current,

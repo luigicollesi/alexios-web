@@ -75,3 +75,19 @@ test("rolling memory is read as context, never replayed as new speech", () => {
   assert.match(next[2].content,/Qual banco estamos usando/);
   assert.ok(first.context.length <= MAX_CONTEXT_CHARS);
 });
+
+test("response core considers real pause, observed voices and noisy transcription", () => {
+  const messages = v3Messages({...input,
+    responseCues:{silenceMs:1216,observedSpeakers:1},
+    freshSpeech:"[speaker_01]: Alô, tá conseguindo ver",
+  });
+  assert.equal(messages.length,3);
+  assert.match(messages[0].content,/1216 ms/);
+  assert.match(messages[0].content,/IDs de vozes distintas nos últimos 3 minutos desta execução: 1/);
+  assert.match(messages[0].content,/não é contagem de pessoas presentes/);
+  assert.match(messages[0].content,/Transcrição automática pode trocar palavras/);
+  assert.match(messages[0].content,/complementar a discussão/);
+  assert.match(messages[0].content,/Está falando comigo/);
+  assert.match(messages[2].content,/Alô, tá conseguindo ver/);
+  assert.doesNotMatch(messages[2].content,/PostgreSQL/);
+});
