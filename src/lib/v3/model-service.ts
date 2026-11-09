@@ -4,6 +4,7 @@ import {
   type ObserveDecision, type RespondDecision,
 } from "@/lib/v3/model-protocol";
 import {v3Messages} from "@/lib/v3/persona-core";
+import {mergeSpeakerContext} from "@/lib/v3/speaker-context";
 import {repairDirectSilence, type ResponseCues} from "@/lib/v3/response-intent";
 import {openRouterCompletionText, OpenRouterShapeError} from "@/lib/v3/fast-provider";
 import type {Frame} from "@/lib/v3/protocol";
@@ -19,6 +20,7 @@ type Input = {
   transcript?: string;
   recentTurns?: string;
   responseCues?: ResponseCues;
+  runId?: string;
 };
 
 // One shared persona contract across queued observation, legacy response
@@ -34,7 +36,18 @@ function messages(input: Input) {
       : input.recentTurns || "",
     responseWindow: input.mode === "RESPOND",
     responseCues: input.responseCues,
+    runId: input.runId,
   });
+}
+
+/** Make confirmed voice/name links independent of the model rewriting its summary. */
+function speakerMemory<T extends {context: string}>(decision: T, input: Input): T {
+  if (!input.runId) return decision;
+  return {...decision, context: mergeSpeakerContext({
+    previous: input.context, generated: decision.context, runId: input.runId,
+    speakerId: input.mode === "OBSERVE" ? input.speakerId : undefined,
+    freshSpeech: input.mode === "OBSERVE" ? input.transcript : input.recentTurns,
+  })};
 }
 
 async function requestModel(input: Input): Promise<ObserveDecision | RespondDecision> {
@@ -82,8 +95,12 @@ async function requestModel(input: Input): Promise<ObserveDecision | RespondDeci
         }
         const data: unknown = await response.json();
         const raw = openRouterCompletionText(data);
-        return input.mode === "OBSERVE" ? parseObserve(raw) :
-          repairDirectSilence(parseRespond(raw), input.recentTurns || "", input.responseCues);
+        return input.mode === "OBSERVE"
+          ? speakerMemory(parseObserve(raw), input)
+          : speakerMemory(
+              repairDirectSilence(parseRespond(raw), input.recentTurns || "", input.responseCues),
+              input,
+            );
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
         if (/OpenRouter HTTP (400|401|403)/.test(err.message)) throw err;
@@ -114,8 +131,12 @@ async function requestModel(input: Input): Promise<ObserveDecision | RespondDeci
   console.warn("[Alexios V3] fallback determinístico", {
     mode: input.mode, reason: lastError,
   });
-  return input.mode === "OBSERVE" ? fallbackObserve(input) :
-    repairDirectSilence(fallbackRespond(input), input.recentTurns || "", input.responseCues);
+  return input.mode === "OBSERVE"
+    ? speakerMemory(fallbackObserve(input), input)
+    : speakerMemory(
+        repairDirectSilence(fallbackRespond(input), input.recentTurns || "", input.responseCues),
+        input,
+      );
 }
 
 export async function observeV3(input: Omit<Input,"mode">): Promise<ObserveDecision> {
