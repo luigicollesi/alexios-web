@@ -48,6 +48,7 @@ export async function statusConversationV3(agentId: string) {
        WHERE agent_id = st.agent_id
          AND run_id = st.active_run_id
          AND event_type IN ('turn_end', 'turn_chunk')
+         AND payload->>'ignoredDuringPlayback' IS DISTINCT FROM 'true'
        ORDER BY sequence DESC LIMIT 1
      ) last_turn ON TRUE
      LEFT JOIN LATERAL (

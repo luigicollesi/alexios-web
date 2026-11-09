@@ -15,7 +15,9 @@ type Claimed = {
   sequence: string | number;
   event_type: "turn_end" | "turn_chunk" | "floor_open";
   fast_status: FastResponseStatus;
+  ignored_during_playback: boolean;
   transcript: string | null;
+  continuous_speech_ms: number | string | null;
   speaker_id: string | null;
   activity_epoch: string | number;
   received_at: string;
@@ -62,6 +64,10 @@ async function claim(eventId: string, token: string): Promise<Claimed | null> {
     )
     SELECT e.event_id, e.agent_id, e.run_id, e.sequence,
       e.event_type, e.fast_status, e.transcript, e.speaker_id, e.activity_epoch, e.received_at,
+      COALESCE((e.payload->>'ignoredDuringPlayback')::boolean, false) AS ignored_during_playback,
+      CASE WHEN e.event_type = 'turn_end' THEN
+        GREATEST(0, (e.payload->>'endedAtMs')::bigint -
+          (e.payload->>'startedAtMs')::bigint) ELSE NULL END AS continuous_speech_ms,
       e.payload->>'silenceMs' AS silence_ms,
       s.context_text, s.context_revision, s.character_stance, s.character_waiting_variant, s.character_frame,
       st.latest_activity, st.active_run_id, s.power, s.desired_power
@@ -117,6 +123,33 @@ async function finalizeFastFloor(
       RETURNING event_id
     )
     SELECT event_id FROM finished`,
+    [job.agent_id, token, numeric(job.sequence), job.event_id],
+  );
+  return Boolean(rows[0]);
+}
+
+/** Discard incoming microphone events while an authenticated playback lease
+ * was active at intake. Do not call OBSERVE/RESPOND, update avatar or memory.
+ * Advance the durable cursor so the Python event sequence never jams.
+ */
+async function finishIgnoredPlaybackEvent(job: Claimed, token: string): Promise<boolean> {
+  const rows = await query<{event_id: string}>(
+    `WITH moved AS (
+       UPDATE public.alexios_v3_streams SET
+         last_processed_sequence = $3::bigint, processing_token = NULL,
+         processing_started_at = NULL, updated_at = now()
+       WHERE agent_id = $1::uuid AND processing_token = $2::uuid
+         AND last_processed_sequence + 1 = $3::bigint
+       RETURNING agent_id
+     ), finished AS (
+       UPDATE public.alexios_v3_events e SET
+         status = 'obsolete', processed_at = now(),
+         last_error = 'ignored_during_playback'
+       WHERE e.event_id = $4::uuid
+         AND e.agent_id IN (SELECT agent_id FROM moved)
+       RETURNING e.event_id
+     )
+     SELECT event_id FROM finished`,
     [job.agent_id, token, numeric(job.sequence), job.event_id],
   );
   return Boolean(rows[0]);
@@ -372,6 +405,14 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
   const sequence = numeric(job.sequence);
   const latencyBeforeProcessingMs = Date.now() - Date.parse(job.received_at);
   try {
+    if (job.ignored_during_playback) {
+      if (!await finishIgnoredPlaybackEvent(job, token)) throw new V3DeferredError();
+      console.info("[Alexios V3] evento de microfone descartado durante fala", {
+        eventId, sequence, type: job.event_type,
+      });
+      return {handled: true, reason: "ignored_during_playback"};
+    }
+
     if (job.event_type === "floor_open" && job.fast_status !== "legacy") {
       if (!fastFloorTerminal(job.fast_status)) {
         const age = Date.now() - Date.parse(job.received_at);
@@ -423,6 +464,8 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
           ...current,
           speakerId: job.run_id.slice(0, 8) + "/" + (job.speaker_id ?? "speaker_unknown"),
           transcript: job.transcript ?? "",
+          continuousSpeechMs: job.continuous_speech_ms === null ? 0
+            : numeric(job.continuous_speech_ms),
         });
     const outcome = await advance(job, token, decision, false);
     if (!outcome.advanced) throw new V3DeferredError();

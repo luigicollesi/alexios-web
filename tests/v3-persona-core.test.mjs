@@ -91,3 +91,14 @@ test("response core considers real pause, observed voices and noisy transcriptio
   assert.match(messages[2].content,/Alô, tá conseguindo ver/);
   assert.doesNotMatch(messages[2].content,/PostgreSQL/);
 });
+
+test("core treats speaking as deaf and does not register unknown voices or solicit names", () => {
+  const messages = v3Messages(input);
+  const core = messages[0].content;
+  assert.match(core, /NÃO escuta/);
+  assert.match(core, /servidor descarta falas/);
+  assert.match(core, /speaker_unknown não identifica nem registra/);
+  assert.match(core, /Não peça identificação/);
+  assert.match(core, /2 s de fala contínua/);
+  assert.doesNotMatch(core, /Como você prefere que eu te chame/);
+});

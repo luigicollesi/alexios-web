@@ -39,7 +39,7 @@ npm run dev
 O redesign é o painel padrão no `npm run dev` nesta branch.
 Configure `DATABASE_URL`, segredos V2, acesso do painel e agente V3
 normalmente. No navegador em `http://localhost:3000`, autorize a
-instância e clique **ATIVAR RAFAEL**. Essa ação desbloqueia o áudio do
+instância e clique **ATIVAR VOZ**. Essa ação desbloqueia o áudio do
 navegador, conforme as políticas de autoplay.
 
 O painel não reproduz a última fala existente quando faz login, recarrega
@@ -98,7 +98,7 @@ real com uma chave Cartesia válida: não há credenciais nos testes CI.
 
 ### Teste de aceitação recomendado
 
-1. Clique **ATIVAR RAFAEL** com o V3 ligado; faça o Python produzir
+1. Clique **ATIVAR VOZ** com o V3 ligado; faça o Python produzir
    uma resposta nova em português (por exemplo, "Olá, Luigi.").
 2. Confirme se a voz corresponde à identidade do Rafael e sotaque pt-BR.
 3. Confirme primeiro fragmento audível antes do fim da requisição.

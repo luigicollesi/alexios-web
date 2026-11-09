@@ -479,10 +479,10 @@ export function ControlConsoleV2() {
                 className="speech-voice-toggle response-voice-button"
                 onClick={() => void toggleVoice()}
                 aria-pressed={voiceEnabled}
-                title="Ativar ou desativar o Cartesia Sonic 3.6, voz Rafael"
+                title="Ativar ou desativar a voz"
               >
                 <Volume2 size={15} aria-hidden="true" />
-                <span>{voiceEnabled ? "RAFAEL ATIVO" : "ATIVAR RAFAEL"}</span>
+                <span>{voiceEnabled ? "VOZ ATIVA" : "ATIVAR VOZ"}</span>
               </button>
             )}
           </div>

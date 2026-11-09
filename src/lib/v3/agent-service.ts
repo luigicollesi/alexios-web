@@ -1,6 +1,7 @@
 import "server-only";
+
 import { AgentError, query, numeric } from "@/lib/agent-db";
-import { connected, findInstance, sessionFor } from "@/lib/v2/agent-service";
+import { connected, findInstance, sessionFor, keyedDigest } from "@/lib/v2/agent-service";
 import { parseIdentity, parseActivity, parseV3Event, type IncomingEvent, type V3EventKind } from "@/lib/v3/protocol";
 import {fastLaneEnabled} from "@/lib/v3/fast-protocol";
 import {latestUtteranceFromCumulative} from "@/lib/v3/transcript-delta";
@@ -87,9 +88,14 @@ export async function activityV3(raw: unknown) {
         character_frame = 'listening', expression_id = 'listening',
         character_speaking_until = NULL, version = version + 1, updated_at = now()
       WHERE s.agent_id = $1::uuid AND EXISTS (SELECT 1 FROM changed)
+        AND NOT EXISTS (
+          SELECT 1 FROM public.alexios_v3_playbacks p
+          WHERE p.agent_id = s.agent_id AND p.run_id = s.run_id
+            AND p.expires_at > now()
+        )
       RETURNING agent_id
     )
-    SELECT activity_epoch FROM changed WHERE EXISTS (SELECT 1 FROM visual)
+    SELECT activity_epoch FROM changed
     UNION ALL
     -- Exact retransmission of an activity epoch is idempotent. Do not reset
     -- the image to listening after the assistant has already answered.
@@ -124,6 +130,7 @@ export async function acceptV3Event(raw: unknown, type: V3EventKind) {
   const event = parseV3Event(raw, type);
   const {agentId, runId} = await authorizeV3(event);
   const payload = eventPayload(event);
+  const payloadHash = keyedDigest("v3-discard-event:" + canon(payload));
   type Existing = {agent_id: string; run_id: string; sequence: string | number;
                    event_type: string; activity_epoch: string | number;
                    payload: Record<string, unknown>};
@@ -133,14 +140,18 @@ export async function acceptV3Event(raw: unknown, type: V3EventKind) {
   );
   if (old[0]) {
     const previous = old[0];
+    const samePayload = previous.payload.ignoredDuringPlayback === true
+      ? previous.payload.payloadHash === payloadHash
+      : canon(previous.payload) === canon(payload);
     if (previous.agent_id !== agentId || previous.run_id !== runId ||
         numeric(previous.sequence) !== event.sequence ||
         previous.event_type !== type ||
         numeric(previous.activity_epoch) !== event.activityEpoch ||
-        canon(previous.payload) !== canon(payload)) {
+        !samePayload) {
       throw new AgentError(409, "eventId reutilizado com conteúdo diferente.");
     }
-    return {accepted: true, duplicate: true, eventId: event.eventId};
+    return {accepted: true, duplicate: true, eventId: event.eventId,
+      ignored: previous.payload.ignoredDuringPlayback === true};
   }
 
   // Preserve the raw event payload for idempotent retransmission. The
@@ -162,7 +173,7 @@ export async function acceptV3Event(raw: unknown, type: V3EventKind) {
     );
   }
 
-  const rows = await query<{event_id: string}>(
+  const rows = await query<{event_id: string; ignored: boolean}>(
     `WITH accepted AS (
       UPDATE public.alexios_v3_streams st SET
         last_accepted_sequence = $3::bigint, updated_at = now()
@@ -185,24 +196,42 @@ export async function acceptV3Event(raw: unknown, type: V3EventKind) {
                   AND e.event_type = 'floor_open'
               )))
       RETURNING agent_id
+    ), playback AS (
+      SELECT EXISTS (
+        SELECT 1 FROM public.alexios_v3_playbacks p
+        JOIN public.alexios_sessions s ON s.agent_id = p.agent_id
+        WHERE p.agent_id = $1::uuid AND p.run_id = $2::uuid
+          AND p.run_id = s.run_id AND p.expires_at > now()
+          AND s.power = 'running' AND s.desired_power = 'running'
+          AND s.power = 'running' AND s.desired_power = 'running'
+      ) AS ignored
     ), inserted AS (
       INSERT INTO public.alexios_v3_events
         (event_id, agent_id, run_id, sequence, event_type, activity_epoch,
          turn_id, speaker_id, transcript, payload, fast_status)
-      SELECT $6::uuid, agent_id, $2::uuid, $3::bigint, $4, $5::bigint,
-        $7::text, $8::text, $9::text, $10::jsonb,
-        CASE WHEN $4::text = 'floor_open' AND $11::boolean
+      SELECT $6::uuid, accepted.agent_id, $2::uuid, $3::bigint, $4, $5::bigint,
+        CASE WHEN playback.ignored THEN NULL ELSE $7::text END,
+        CASE WHEN playback.ignored THEN NULL ELSE $8::text END,
+        CASE WHEN playback.ignored THEN NULL ELSE $9::text END,
+        CASE WHEN playback.ignored THEN
+          jsonb_build_object('ignoredDuringPlayback', true, 'payloadHash', $12::text)
+          ELSE $10::jsonb END,
+        CASE WHEN playback.ignored THEN 'legacy'
+          WHEN $4::text = 'floor_open' AND $11::boolean
           THEN 'pending' ELSE 'legacy' END
-      FROM accepted
-      RETURNING event_id
+      FROM accepted CROSS JOIN playback
+      RETURNING event_id, payload
     )
-    SELECT event_id FROM inserted`,
+    SELECT event_id,
+      COALESCE((payload->>'ignoredDuringPlayback')::boolean, false) AS ignored
+    FROM inserted`,
     [agentId, runId, event.sequence, type, event.activityEpoch,
      event.eventId, event.turnId ?? null, event.speakerId ?? null,
-     canonicalTranscript, JSON.stringify(payload), fastLaneEnabled()],
+     canonicalTranscript, JSON.stringify(payload), fastLaneEnabled(), payloadHash],
   );
   if (!rows[0]) {
     throw new AgentError(409, "Sequência inválida, run substituído ou abertura obsoleta.");
   }
-  return {accepted: true, duplicate: false, eventId: rows[0].event_id};
+  return {accepted: true, duplicate: false, eventId: rows[0].event_id,
+    ignored: rows[0].ignored};
 }

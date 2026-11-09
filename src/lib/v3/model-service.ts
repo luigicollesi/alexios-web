@@ -18,6 +18,7 @@ type Input = {
   mode: Task;
   speakerId?: string;
   transcript?: string;
+  continuousSpeechMs?: number;
   recentTurns?: string;
   responseCues?: ResponseCues;
   runId?: string;
@@ -46,7 +47,8 @@ function speakerMemory<T extends {context: string}>(decision: T, input: Input): 
   return {...decision, context: mergeSpeakerContext({
     previous: input.context, generated: decision.context, runId: input.runId,
     speakerId: input.mode === "OBSERVE" ? input.speakerId : undefined,
-    freshSpeech: input.mode === "OBSERVE" ? input.transcript : input.recentTurns,
+    freshSpeech: input.mode === "OBSERVE" ? input.transcript : undefined,
+    continuousSpeechMs: input.mode === "OBSERVE" ? input.continuousSpeechMs : 0,
   })};
 }
 
