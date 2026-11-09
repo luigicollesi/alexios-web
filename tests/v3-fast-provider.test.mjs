@@ -85,7 +85,7 @@ test("OpenRouter final text is extracted from both common provider formats", () 
     "{\"ok\":true}");
   assert.equal(openRouterCompletionText(choice({
     content:[{type:"text",text:"{\"ok\":"},{type:"text",text:"true}"}],
-  })), "{\"ok\":\ntrue}");
+  })), "{\"ok\":true}");
   assert.throws(
     () => openRouterCompletionText(choice({content:null,reasoning:"private"})),
     error => error instanceof OpenRouterShapeError &&
