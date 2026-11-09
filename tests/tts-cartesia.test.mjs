@@ -6,6 +6,7 @@ import {
 import { PcmF32Chunker } from "../src/lib/tts/pcm.ts";
 import { currentSpeechForTts } from "../src/lib/tts/speech-gate.ts";
 import { playbackAvatar } from "../src/lib/tts/voice-avatar.ts";
+import { shouldInterruptForConfirmedTurn } from "../src/lib/tts/interruption-policy.ts";
 
 test("voice is pinned to Rafael and comma-separated keys are ordered and unique", () => {
   assert.equal(CARTESIA_VOICE_ID, "07b6f895-78b9-4921-8e10-8a21c99c2e8a");
@@ -147,4 +148,62 @@ test("speaking pose tracks actual playback, not the server's estimated timer", (
   const disabled = playbackAvatar("speaking", original, false, false);
   assert.equal(disabled.expression, "speaking");
   assert.equal(disabled.visual, original);
+});
+
+test("VAD speech_started alone is not confirmed interruption of Cartesia playback", () => {
+  const context = {
+    speechText: "Olá, Luigi. Eu posso explicar como configurar o Alexios.",
+    speechAtMs: Date.parse("2026-11-09T16:03:21.040-03:00"),
+    lastTurnSequenceAtStart: 121,
+  };
+
+  // The user's production logs show a published response followed immediately
+  // by multiple speech_started events. None is a confirmed transcribed turn.
+  for (const epoch of [21, 22, 23, 24, 25, 26, 27]) {
+    assert.ok(epoch > 0);
+    assert.equal(shouldInterruptForConfirmedTurn(context, null), false);
+  }
+
+  assert.equal(shouldInterruptForConfirmedTurn(context, {
+    sequence: 121, text: "Olá, Luigi", receivedAt: "2026-11-09T16:03:22.310-03:00",
+  }), false);
+});
+
+test("microphone echo snippets from own TTS do not abort playback", () => {
+  const context = {
+    speechText: "Olá, Luigi. Eu posso explicar como configurar o Alexios corretamente.",
+    speechAtMs: Date.parse("2026-11-09T16:03:21.040-03:00"),
+    lastTurnSequenceAtStart: 121,
+  };
+  for (const text of [
+    "Olá, Luigi",
+    "eu posso explicar",
+    "como configurar o Alexios",
+    "Eu posso explicar como configurar o Alexios corretamente",
+    "Eu posso explicar como configurar o Alexios corretamente!",
+  ]) {
+    assert.equal(shouldInterruptForConfirmedTurn(context, {
+      sequence: 123, text, receivedAt: "2026-11-09T16:03:36.570-03:00",
+    }), false, text);
+  }
+});
+
+test("new confirmed user command can still interrupt audio", () => {
+  const context = {
+    speechText: "A configuração terá três etapas. Primeiro, abra o painel de controle.",
+    speechAtMs: Date.parse("2026-11-09T16:03:21.040-03:00"),
+    lastTurnSequenceAtStart: 121,
+  };
+  for (const text of ["Pare agora", "Alexios, interrompa", "Tenho outra pergunta", "Não é isso"]) {
+    assert.equal(shouldInterruptForConfirmedTurn(context, {
+      sequence: 123, text, receivedAt: "2026-11-09T16:03:25.020-03:00",
+    }), true, text);
+  }
+  // Pre-publication/stale events and empty/noisy transcripts aren't barge-in.
+  assert.equal(shouldInterruptForConfirmedTurn(context, {
+    sequence: 124, text: "Pare agora", receivedAt: "2026-11-09T16:03:19.360-03:00",
+  }), false);
+  assert.equal(shouldInterruptForConfirmedTurn(context, {
+    sequence: 123, text: "", receivedAt: "2026-11-09T16:03:25.020-03:00",
+  }), false);
 });
