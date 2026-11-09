@@ -11,7 +11,13 @@ export function parseCartesiaKeys(raw: string | undefined): string[] {
 
 export class CartesiaKeyRing {
   private readonly unavailableUntil = new Map<string, number>();
-  constructor(readonly keys: readonly string[], private readonly cooldownMs = COOLDOWN_MS) {}
+  readonly keys: readonly string[];
+  private readonly cooldownMs: number;
+
+  constructor(keys: readonly string[], cooldownMs = COOLDOWN_MS) {
+    this.keys = keys;
+    this.cooldownMs = cooldownMs;
+  }
 
   candidates(now = Date.now()): string[] {
     return this.keys.filter((key) => (this.unavailableUntil.get(key) ?? 0) <= now);
