@@ -4,7 +4,7 @@ import {
   type ObserveDecision, type RespondDecision,
 } from "@/lib/v3/model-protocol";
 import {v3Messages} from "@/lib/v3/persona-core";
-import {repairDirectSilence} from "@/lib/v3/response-intent";
+import {repairDirectSilence, type ResponseCues} from "@/lib/v3/response-intent";
 import {openRouterCompletionText, OpenRouterShapeError} from "@/lib/v3/fast-provider";
 import type {Frame} from "@/lib/v3/protocol";
 
@@ -18,6 +18,7 @@ type Input = {
   speakerId?: string;
   transcript?: string;
   recentTurns?: string;
+  responseCues?: ResponseCues;
 };
 
 // One shared persona contract across queued observation, legacy response
@@ -32,6 +33,7 @@ function messages(input: Input) {
       ? "[" + (input.speakerId || "speaker_unknown") + "] " + (input.transcript || "")
       : input.recentTurns || "",
     responseWindow: input.mode === "RESPOND",
+    responseCues: input.responseCues,
   });
 }
 
@@ -81,7 +83,7 @@ async function requestModel(input: Input): Promise<ObserveDecision | RespondDeci
         const data: unknown = await response.json();
         const raw = openRouterCompletionText(data);
         return input.mode === "OBSERVE" ? parseObserve(raw) :
-          repairDirectSilence(parseRespond(raw), input.recentTurns || "");
+          repairDirectSilence(parseRespond(raw), input.recentTurns || "", input.responseCues);
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
         if (/OpenRouter HTTP (400|401|403)/.test(err.message)) throw err;
@@ -107,12 +109,13 @@ async function requestModel(input: Input): Promise<ObserveDecision | RespondDeci
   // Never let an unreliable model response block subsequent events.
   // On provider failure keep the previous compact memory unchanged; raw
   // transcriptions remain in the event log and must not pollute memory.
-  // For an open floor, silence is the only safe fallback.
+  // For an open floor, only explicit address/clarification cues may authorize
+  // a safe acknowledgement; ambient discussion stays silent.
   console.warn("[Alexios V3] fallback determinístico", {
     mode: input.mode, reason: lastError,
   });
   return input.mode === "OBSERVE" ? fallbackObserve(input) :
-    repairDirectSilence(fallbackRespond(input), input.recentTurns || "");
+    repairDirectSilence(fallbackRespond(input), input.recentTurns || "", input.responseCues);
 }
 
 export async function observeV3(input: Omit<Input,"mode">): Promise<ObserveDecision> {
