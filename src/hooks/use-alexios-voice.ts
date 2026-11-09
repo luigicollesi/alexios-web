@@ -177,7 +177,8 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
         snapshot.core.power !== "running" || !snapshot.core.speech.text.trim() ||
         epoch === null || !Number.isFinite(timestamp) ||
         timestamp > Date.now() + 5_000 || Date.now() - timestamp > 5_000) return;
-    void playSpeech(seq, epoch);
+    // Start the network operation after the synchronous React effect phase.
+    queueMicrotask(() => { void playSpeech(seq, epoch); });
   }, [snapshot, authorized, voiceEnabled, stopForSnapshot, playSpeech]);
 
   const toggleVoice = useCallback(async () => {
