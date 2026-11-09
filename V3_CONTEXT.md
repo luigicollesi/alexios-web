@@ -40,6 +40,44 @@ O modelo escolhe `stance` e `waitingVariant`. Os estados `listening` e
 o modelo escolheu silêncio ou quando um novo `speech_started` cancelou a
 resposta.
 
+## Participação natural na conversa
+
+A decisão `shouldSpeak` pertence principalmente à IA. Ela pode:
+- responder quando for provavelmente chamada a participar (nome explícito **não** é obrigatório);
+- complementar um argumento com informação verificável e útil;
+- perguntar para esclarecer uma ambiguidade relevante ou informação ausente;
+- fazer um comentário breve relacionado ao tema, desde que acrescente valor;
+- continuar ouvindo se a pergunta for dirigida a outra pessoa, se houver
+  uma conversa em andamento ou se a intervenção for desnecessária.
+
+**Uma interrogação não é autorização automática para falar.** Não se usa
+a frase na memória como nova pergunta. Transcrições são hipóteses falíveis:
+podem conter palavras erradas, pontuação incorreta, lacunas ou cortes. A IA
+deve inferir o sentido apenas até onde o contexto sustentar e perguntar
+com delicadeza quando faltar informação, evitando inventar a fala original.
+
+Cada `floor_open` contém `payload.silenceMs`, duração da pausa observada
+pelo agente Python. A inferência agora recebe esse valor e a contagem de
+IDs de vozes **distintas observadas nos últimos três minutos da mesma execução**,
+não de pessoas presentes. A existência de apenas um ID reconhecido nunca prova
+que o usuário está sozinho; os demais podem estar distantes do microfone ou
+o detector pode errar a diarização. O evento oferece uma oportunidade de fala,
+mas não prova uma pausa maior do que o valor informado.
+
+Exemplo: `Alô, tá conseguindo ver?` com uma única voz observada recentemente
+e pausa de 1.216 ms pode justificar uma resposta contextual ou a pergunta
+`Está falando comigo?`. Se houver indícios de outros interlocutores ou a
+pausa for insuficiente, uma decisão de silêncio também pode estar correta.
+
+O código mantém uma última proteção restrita: se o **modelo ficar em silêncio**
+apesar de endereçamento explícito, responde com confirmação segura; no caso
+de uma verificação ambígua de comunicação, só sugere esclarecimento quando
+houve pelo menos 1.100 ms de pausa e exatamente um ID de voz recente.
+**Perguntas genéricas, pontuação e saudações por si sós não forçam resposta.**
+O modelo pode intervir por valor contextual mesmo sem qualquer heurística;
+se a rede falhar, as proteções de `runId`, `activityEpoch`, validade e FIM
+continuam sendo necessárias para publicar fala.
+
 ## Isolamento das perguntas
 
 O SQL `FRESH_FLOOR_TURNS_SQL` usa a última fronteira `floor_open` do mesmo
@@ -64,7 +102,7 @@ reutilizados. **A migração aditiva 006_v3_context_revision.sql é necessária
 antes do deploy deste código.** Ela adiciona `context_revision` à sessão,
 `fast_context_applied` aos eventos e índices para as janelas de fala.
 A migração foi aplicada e validada apenas na branch Neon
-`dev-alexios-web-v3`. A produção permanece intacta.
+`dev-alexios-web-v3`. A migração 006 já foi aplicada à produção antes da PR #14.
 
 As transações Fast e OBSERVE só aplicam a memória gerada quando a revisão
 lida no início ainda é a atual. Se outra inferência atualizar a memória
@@ -124,4 +162,10 @@ pago é selecionado implicitamente.
 3. Conferir a aplicação da revisão e as poses em silêncio e respostas reais.
 4. Revalidar Fast Response com concorrência e limites de tokens.
 
-O banco de produção NÃO recebeu a migração 006 nesta revisão.
+A migração 006 já existe em produção; não aplicá-la novamente. Nesta revisão não há alteração de banco de dados.
+
+## Economia de deployments
+
+Validar código e testes no GitHub Actions antes do merge e agrupar as
+correções na mesma PR. Evitar builds e previews intermediários; publicar
+uma única revisão pronta em produção, respeitando os limites da Vercel.
