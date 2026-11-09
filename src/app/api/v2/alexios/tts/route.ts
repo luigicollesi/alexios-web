@@ -3,6 +3,7 @@ import { statusV2 } from "@/lib/v2/agent-service";
 import { AgentError } from "@/lib/agent-db";
 import { errorResponse } from "@/lib/v2/http";
 import { cartesiaSpeechStream, CartesiaTtsError } from "@/lib/tts/cartesia";
+import { currentSpeechForTts } from "@/lib/tts/speech-gate";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,20 +35,10 @@ export async function POST(request: Request) {
     }
 
     const status = await statusV2(agentId);
-    if (!status.agent.connected || status.core.power !== "running" ||
-        status.core.protocolVersion !== 3) {
-      throw new AgentError(409, "Núcleo V3 indisponível.");
-    }
-    const speech = status.core.speech;
-    if (speech.seq !== sequence || status.conversation?.activityEpoch !== activityEpoch) {
-      throw new AgentError(409, "Resposta substituída por atividade mais recente.");
-    }
-    const at = speech.at ? Date.parse(String(speech.at)) : NaN;
-    if (!Number.isFinite(at) || at > Date.now() + 5_000 ||
-        Date.now() - at > 12_000 || !speech.text.trim()) {
-      throw new AgentError(409, "Resposta não disponível para síntese.");
-    }
-    const text = speech.text.slice(0, 600).trim();
+    const text = currentSpeechForTts(
+      status, Number(sequence), Number(activityEpoch),
+    );
+    if (!text) throw new AgentError(409, "Resposta substituída, antiga ou indisponível.");
     const stream = await cartesiaSpeechStream(text, request.signal);
     return new Response(stream, {
       status: 200,
