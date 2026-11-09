@@ -37,7 +37,7 @@ export function directRequestKind(freshTurns: string): DirectRequestKind | null 
  */
 export function repairDirectSilence<T extends {shouldSpeak: boolean; speech: string}>(
   decision: T, freshTurns: string,
-): T {
+): T & {directSilenceRepaired?: boolean} {
   if (decision.shouldSpeak) return decision;
   const intent = directRequestKind(freshTurns);
   if (!intent) return decision;
@@ -52,5 +52,6 @@ export function repairDirectSilence<T extends {shouldSpeak: boolean; speech: str
   } else {
     acknowledgement = "Ouvi sua pergunta, mas não consegui responder agora. Pode reformular?";
   }
-  return {...decision, shouldSpeak: true, speech: acknowledgement};
+  return {...decision, shouldSpeak: true, speech: acknowledgement,
+    directSilenceRepaired: true};
 }
