@@ -4,6 +4,7 @@ import {
   type ObserveDecision, type RespondDecision,
 } from "@/lib/v3/model-protocol";
 import {v3Messages} from "@/lib/v3/persona-core";
+import {openRouterCompletionText, OpenRouterShapeError} from "@/lib/v3/fast-provider";
 import type {Frame} from "@/lib/v3/protocol";
 
 type Task = "OBSERVE" | "RESPOND";
@@ -76,29 +77,25 @@ async function requestModel(input: Input): Promise<ObserveDecision | RespondDeci
           }
           break;
         }
-        const data = await response.json() as {
-          choices?: Array<{
-            finish_reason?: string | null;
-            message?: {content?: unknown};
-          }>;
-        };
-        const choice = data.choices?.[0];
-        if (choice?.finish_reason === "length") {
-          throw new SyntaxError("Resposta JSON truncada por max_tokens.");
-        }
-        const raw = choice?.message?.content;
+        const data: unknown = await response.json();
+        const raw = openRouterCompletionText(data);
         return input.mode === "OBSERVE" ? parseObserve(raw) : parseRespond(raw);
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
         if (/OpenRouter HTTP (400|401|403)/.test(err.message)) throw err;
         const malformed = err instanceof SyntaxError ||
+          err instanceof OpenRouterShapeError ||
           /JSON|json|contexto ou postura inválida|Decisão de fala inválida|não retornou texto/i
             .test(err.message);
-        lastError = malformed ? "invalid_json" :
+        lastError = err instanceof OpenRouterShapeError ? err.kind :
+          malformed ? "invalid_json" :
           err.name === "TimeoutError" || err.name === "AbortError"
             ? "timeout" : "provider_error";
         console.warn("[Alexios V3] resposta do modelo não utilizada", {
           mode: input.mode, reason: lastError, attempt, modelFallbackIndex: idx,
+          ...(err instanceof OpenRouterShapeError
+            ? {finishReason: err.finishReason, contentShape: err.contentShape,
+               hasReasoning: err.hasReasoning} : {}),
         });
         if (!malformed || attempt === 2) break;
       }
