@@ -98,6 +98,24 @@ A memória tem meta de 900 e limite de 1.200 caracteres, compartilhado pelos
 parsers de OBSERVE, RESPOND e Fast Response. Transcrições ficam persistidas
 como eventos separados, não como um histórico duplicado no contexto.
 
+## Recuperação quando o Fast Response falha
+
+Uma falha de rede, HTTP transitório, JSON incompleto ou ausência de conteúdo
+final do modelo **não é** uma decisão de silêncio. Nessas situações, o Fast
+atualiza a mesma janela para `fast_status=legacy`, preservando `fast_error`
+e liberando a fila V3 para uma nova chamada RESPOND, com a mesma restrição
+de `runId`, `activityEpoch` e prazo. A fila permanece idempotente: uma
+janela anterior nunca volta a ser solicitada ao modelo.
+
+Somente uma resposta JSON válida com `shouldSpeak=false` conta como
+**silêncio voluntário**. Credenciais ausentes/inválidas resultam em cancelamento
+explícito, sem tentar a mesma chave novamente. O parser distingue
+`empty_content`, `no_choice` e `truncated`; registra apenas metadados
+estruturais seguros, nunca falas ou raciocínio do provedor.
+
+O Fast continua usando `OPENROUTER_MODEL` por padrão; nenhum segundo modelo
+pago é selecionado implicitamente.
+
 ## Rollout seguro
 
 1. Verificar os testes e Preview com `DATABASE_URL` isolada na branch Neon V3.

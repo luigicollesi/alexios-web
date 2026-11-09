@@ -56,8 +56,70 @@ export function fastCompletionBody(candidate: FastModelCandidate, messages: Arra
   };
 }
 
+/** A provider can reply 200 with no final content, or text parts. Do not
+ * ever log completion contents or reasoning; only structural metadata.
+ */
+export class OpenRouterShapeError extends Error {
+  readonly kind: "no_choice" | "empty_content" | "truncated";
+  readonly finishReason: string;
+  readonly contentShape: string;
+  readonly hasReasoning: boolean;
+  constructor(kind: OpenRouterShapeError["kind"], details: {
+    finishReason?: unknown; content?: unknown; reasoning?: unknown;
+  } = {}) {
+    super("OpenRouter response shape: " + kind);
+    this.name = "OpenRouterShapeError";
+    this.kind = kind;
+    this.finishReason = typeof details.finishReason === "string"
+      ? details.finishReason.slice(0, 24) : "missing";
+    this.contentShape = Array.isArray(details.content)
+      ? "array" : details.content === null ? "null" : typeof details.content;
+    this.hasReasoning = typeof details.reasoning === "string" &&
+      details.reasoning.length > 0;
+  }
+}
+
+/** Extract only final assistant text. Never treat reasoning as an answer. */
+export function openRouterCompletionText(raw: unknown): string {
+  const obj = raw && typeof raw === "object" && !Array.isArray(raw)
+    ? raw as Record<string, unknown> : {};
+  const choices = Array.isArray(obj.choices) ? obj.choices : [];
+  const choice = choices[0];
+  if (!choice || typeof choice !== "object") {
+    throw new OpenRouterShapeError("no_choice");
+  }
+  const item = choice as Record<string, unknown>;
+  const message = item.message && typeof item.message === "object"
+    ? item.message as Record<string, unknown> : {};
+  const details = {finishReason: item.finish_reason,
+    content: message.content, reasoning: message.reasoning};
+  if (item.finish_reason === "length") {
+    throw new OpenRouterShapeError("truncated", details);
+  }
+  const content = message.content;
+  if (typeof content === "string" && content.trim()) return content;
+  if (Array.isArray(content)) {
+    const combined = content.map(part => {
+      if (!part || typeof part !== "object") return "";
+      const item = part as Record<string, unknown>;
+      return item.type === "text" && typeof item.text === "string"
+        ? item.text : "";
+    }).filter(Boolean).join("");
+    if (combined.trim()) return combined;
+  }
+  throw new OpenRouterShapeError("empty_content", details);
+}
+
+export function fastShouldUseQueuedFallback(reason: string): boolean {
+  // Silencing a provider failure loses the whole response window. Route it
+  // through the already-durable V3 queue instead, never replaying older floors.
+  return reason !== "missing_api_key" && reason !== "http_401" &&
+    reason !== "http_403";
+}
+
 /** Error descriptions are intentionally bounded machine-readable codes. */
 export function fastFailureCode(error: unknown): string {
+  if (error instanceof OpenRouterShapeError) return error.kind;
   if (error instanceof FastProviderHttpError) {
     return "http_" + error.status;
   }

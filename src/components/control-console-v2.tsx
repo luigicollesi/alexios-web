@@ -51,6 +51,17 @@ function floorSummary(status: AlexiosStatus): string {
   if (last?.fastStatus === "revoked" || last?.fastStatus === "timed_out") {
     return "Resposta rápida cancelada ou fora do prazo.";
   }
+  if (last?.fastStatus === "legacy" && last.fastError && last.status !== "processed") {
+    return "Falha na resposta rápida (" + last.fastError + "); recuperando pela fila.";
+  }
+  if (last?.fastStatus === "legacy" && last.fastError && last.status === "processed") {
+    const speechAt = status.core.speech.at ? Date.parse(status.core.speech.at) : NaN;
+    const floorAt = last.receivedAt ? Date.parse(last.receivedAt) : NaN;
+    return Number.isFinite(speechAt) && Number.isFinite(floorAt) && speechAt >= floorAt
+      ? "Resposta recuperada pela fila após falha rápida."
+      : "Fast indisponível; fila processada sem resposta publicada.";
+  }
+
   if (convo.pendingCount > 0) {
     return `Analisando ${convo.pendingCount} evento(s); último processado #${convo.processedSequence}.`;
   }

@@ -2,7 +2,8 @@ import {test} from "node:test";
 import assert from "node:assert/strict";
 import {
   FastProviderHttpError, fastCompletionBody, fastFailureCode,
-  fastModelCandidates, fastShouldTryFallback,
+  fastModelCandidates, fastShouldTryFallback, fastShouldUseQueuedFallback,
+  openRouterCompletionText, OpenRouterShapeError,
 } from "../src/lib/v3/fast-provider.ts";
 
 test("one environment variable controls all AI modes by default", () => {
@@ -75,4 +76,35 @@ test("fallback is attempted for unavailable models but not bad credentials", () 
   }
   assert.equal(fastShouldTryFallback("http_401"),false);
   assert.equal(fastShouldTryFallback("http_403"),false);
+});
+
+test("OpenRouter final text is extracted from both common provider formats", () => {
+  const choice = ({content, finish_reason="stop", reasoning=""}) =>
+    ({choices:[{finish_reason, message:{content,reasoning}}]});
+  assert.equal(openRouterCompletionText(choice({content:"{\"ok\":true}"})),
+    "{\"ok\":true}");
+  assert.equal(openRouterCompletionText(choice({
+    content:[{type:"text",text:"{\"ok\":"},{type:"text",text:"true}"}],
+  })), "{\"ok\":true}");
+  assert.throws(
+    () => openRouterCompletionText(choice({content:null,reasoning:"private"})),
+    error => error instanceof OpenRouterShapeError &&
+      error.kind === "empty_content" && error.hasReasoning === true,
+  );
+  assert.throws(
+    () => openRouterCompletionText(choice({content:"{\"x\":",finish_reason:"length"})),
+    error => error instanceof OpenRouterShapeError && error.kind === "truncated",
+  );
+  assert.equal(fastFailureCode(new OpenRouterShapeError("empty_content")), "empty_content");
+  assert.equal(fastFailureCode(new OpenRouterShapeError("no_choice")), "no_choice");
+});
+
+test("provider problems route to queued RESPOND rather than being mistaken for silence", () => {
+  for (const reason of ["provider_error","empty_content","no_choice",
+    "truncated","invalid_json","invalid_response","http_429","model_timeout"]) {
+    assert.equal(fastShouldUseQueuedFallback(reason), true, reason);
+  }
+  for (const reason of ["http_401","http_403","missing_api_key"]) {
+    assert.equal(fastShouldUseQueuedFallback(reason), false, reason);
+  }
 });
