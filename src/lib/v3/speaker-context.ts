@@ -9,6 +9,7 @@ import {MAX_CONTEXT_CHARS} from "./context-limits.ts";
 const BLOCK = /\n?\[Vozes da execucao ([0-9a-f]{8})\]\n((?:speaker_\d{2,8} = [^\n]{1,70}\n?)*)/gi;
 const MAP_LINE = /^speaker_(\d{2,8}) = ([^\r\n]{1,50})$/gm;
 const SPEAKER = /speaker_\d{2,8}/;
+export const MIN_MEMORABLE_SPEECH_MS = 2_000;
 const IDENTIFIED_NAME = /\b(?:me chamo|meu nome (?:é|eh)|pode me chamar de)\s+([\p{L}]{2,32})(?:[\s,.;!?]|$)/iu;
 
 type Mapping = {speaker: string; name: string};
@@ -66,8 +67,14 @@ export function explicitNameIntroduction(transcript: string): string | null {
   return candidate[0].toLocaleUpperCase("pt-BR") + candidate.slice(1);
 }
 
-function introductions(fresh: string, speakerId?: string | null): Mapping[] {
+function introductions(
+  fresh: string, speakerId: string | null | undefined, continuousSpeechMs: number,
+): Mapping[] {
   const mappings: Mapping[] = [];
+  // Only register a spontaneous introduction after a continuous >=2s turn.
+  // Unknown speakers and brief speech snippets must not create identities.
+  if (!Number.isFinite(continuousSpeechMs) ||
+      continuousSpeechMs < MIN_MEMORABLE_SPEECH_MS) return mappings;
   const individual = speakerId?.match(SPEAKER)?.[0];
   if (individual) {
     const name = explicitNameIntroduction(fresh);
@@ -87,9 +94,12 @@ function introductions(fresh: string, speakerId?: string | null): Mapping[] {
 export function mergeSpeakerContext(args: {
   previous: string; generated: string; runId: string;
   freshSpeech?: string; speakerId?: string | null;
+  continuousSpeechMs?: number;
 }): string {
   const mappings = parseMappings(args.previous, args.runId);
-  const newlyConfirmed = introductions(args.freshSpeech || "", args.speakerId);
+  const newlyConfirmed = introductions(
+    args.freshSpeech || "", args.speakerId, args.continuousSpeechMs ?? 0,
+  );
   return joinContext(stripSpeakerMappings(args.generated),
     [...mappings, ...newlyConfirmed], args.runId);
 }
