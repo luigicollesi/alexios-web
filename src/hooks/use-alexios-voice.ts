@@ -41,6 +41,16 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
     if (updateUI) setPlaybackState("idle");
   }, []);
 
+  // Snapshot effects perform imperative cleanup first and notify React on
+  // the next microtask. This avoids synchronous setState inside an effect.
+  const stopForSnapshot = useCallback(() => {
+    const hadAudio = activeRef.current !== null;
+    stopPlayback(false);
+    if (hadAudio) queueMicrotask(() => {
+      if (!activeRef.current) setPlaybackState("idle");
+    });
+  }, [stopPlayback]);
+
   const playSpeech = useCallback(async (sequence: number, activityEpoch: number) => {
     const context = contextRef.current;
     if (!context || context.state === "closed") return;
@@ -131,13 +141,13 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
 
   useEffect(() => {
     if (authorized !== true) {
-      stopPlayback();
+      stopForSnapshot();
       lastSeenSpeech.current = null;
       lastSeenActivity.current = null;
       return;
     }
     if (!snapshot) {
-      stopPlayback();
+      stopForSnapshot();
       return;
     }
     const seq = snapshot.core.speech.seq;
@@ -152,7 +162,7 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
     lastSeenActivity.current = epoch;
     if (newActivity || snapshot.core.power !== "running" || !snapshot.agent.connected ||
         !voiceEnabled) {
-      if (activeRef.current) stopPlayback();
+      if (activeRef.current) stopForSnapshot();
     }
     if (seq <= lastSeenSpeech.current) return;
     lastSeenSpeech.current = seq;
@@ -162,7 +172,7 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
         epoch === null || !Number.isFinite(timestamp) ||
         timestamp > Date.now() + 5_000 || Date.now() - timestamp > 5_000) return;
     void playSpeech(seq, epoch);
-  }, [snapshot, authorized, voiceEnabled, stopPlayback, playSpeech]);
+  }, [snapshot, authorized, voiceEnabled, stopForSnapshot, playSpeech]);
 
   const toggleVoice = useCallback(async () => {
     if (voiceEnabled) {
