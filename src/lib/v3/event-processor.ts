@@ -407,7 +407,7 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
     const current = {
       context: job.context_text, stance: job.character_stance,
       waitingVariant: job.character_waiting_variant,
-      frame: job.character_frame,
+      frame: job.character_frame, runId: job.run_id,
     };
     const freshTurns = job.event_type === "floor_open"
       ? await recentTurnsForFloor(job) : null;

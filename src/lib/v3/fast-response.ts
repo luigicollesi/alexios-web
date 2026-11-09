@@ -3,6 +3,7 @@ import {randomUUID} from "node:crypto";
 import {query, numeric} from "@/lib/agent-db";
 import {fastFloorEligible, parseFastDecision, type FastDecision} from "@/lib/v3/fast-protocol";
 import {v3Messages} from "@/lib/v3/persona-core";
+import {mergeSpeakerContext} from "@/lib/v3/speaker-context";
 import {repairDirectSilence, type ResponseCues} from "@/lib/v3/response-intent";
 import type {Stance, Frame} from "@/lib/v3/protocol";
 import {FRESH_FLOOR_TURNS_SQL, formatFreshFloorTurns, responseCuesForFloor, type FloorTurn}
@@ -88,6 +89,7 @@ async function decideSpeech(floor: ClaimedFastFloor,
     freshSpeech: recentTurns,
     responseWindow: true,
     responseCues,
+    runId: floor.run_id,
   });
   let lastError: unknown = new Error("No response received");
   const t0 = Date.now();
@@ -112,9 +114,13 @@ async function decideSpeech(floor: ClaimedFastFloor,
       // The model owns ordinary turn-taking. A deterministic clarification is
       // allowed only for explicit address or a solitary observed voice making
       // an ambiguous connection check after a real pause.
-      const decision = repairDirectSilence(
+      const suggested = repairDirectSilence(
         parseFastDecision(openRouterCompletionText(data)), recentTurns, responseCues,
       );
+      const decision = {...suggested, context: mergeSpeakerContext({
+        previous: floor.context_text, generated: suggested.context,
+        runId: floor.run_id, freshSpeech: recentTurns,
+      })};
       return {
         ...decision,
         modelMs: Date.now() - attemptedAt,
