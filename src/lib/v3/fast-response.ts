@@ -3,6 +3,7 @@ import {randomUUID} from "node:crypto";
 import {query, numeric} from "@/lib/agent-db";
 import {fastFloorEligible, parseFastDecision, type FastDecision} from "@/lib/v3/fast-protocol";
 import {v3Messages} from "@/lib/v3/persona-core";
+import {directRequestKind} from "@/lib/v3/response-intent";
 import type {Stance, Frame} from "@/lib/v3/protocol";
 import {FRESH_FLOOR_TURNS_SQL, formatFreshFloorTurns, type FloorTurn}
   from "@/lib/v3/floor-turns";
@@ -100,6 +101,12 @@ async function decideSpeech(floor: ClaimedFastFloor, recentTurns: string) {
       if (!response.ok) throw new FastProviderHttpError(response.status);
       const data: unknown = await response.json();
       const decision = parseFastDecision(openRouterCompletionText(data));
+      if (!decision.shouldSpeak && directRequestKind(recentTurns)) {
+        // An obvious question or connection check is not ambient silence.
+        // Allow the durable queued RESPOND a second interpretation instead
+        // of discarding this speech window.
+        throw new Error("direct_request_silent");
+      }
       return {
         ...decision,
         modelMs: Date.now() - attemptedAt,
