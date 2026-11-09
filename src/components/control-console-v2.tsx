@@ -386,7 +386,7 @@ export function ControlConsoleV2() {
   return (
     <main className="viewport">
       <div className="world-grid" aria-hidden="true" />
-      <div className="console-stage" style={stageStyle}>
+      <div className="console-stage console-stage--refined" style={stageStyle}>
         <div className="stage-noise" aria-hidden="true" />
         <div className="stage-graticule" aria-hidden="true" />
         <span className="edge-corner edge-corner-tl" aria-hidden="true" />
@@ -401,7 +401,7 @@ export function ControlConsoleV2() {
             <span className="brand-caption">INTELLIGENCE CONTROL SYSTEM</span>
           </div>
           <div className="header-divider" />
-          <div className="header-environment"><CircleDot size={13} /><span>CORE INTERFACE <b>01</b></span></div>
+          <div className="header-environment"><CircleDot size={13} /><span>INTERFACE <b>V{snapshot?.core.protocolVersion ?? "—"}</b></span></div>
           <div className="header-spacer" />
           <div className={"header-connection " + (apiAvailable ? "connected" : "")}>
             <span className="small-led" />
@@ -419,7 +419,7 @@ export function ControlConsoleV2() {
         <aside className="info-panel left-panel" aria-label="Estado da conexão">
           <div className="section-caption"><span className="section-line" />LINK DE CONTROLE <span className="section-index">/01</span></div>
           <div className="panel-heading">CONEXÃO<span className="muted-dot">.</span></div>
-          <div className="panel-description">Canal seguro de comunicação com o agente local.</div>
+          <div className="panel-description">Comunicação com o agente local em tempo real.</div>
           <div className="glass-strip">
             <div className="strip-icon"><Radio size={22} strokeWidth={1.3} /></div>
             <div>
@@ -435,12 +435,6 @@ export function ControlConsoleV2() {
             <div className="metric-row"><span><ShieldCheck size={14} /> SERVIÇO API</span><strong>{apiAvailable ? "ONLINE" : "--"}</strong></div>
             <div className="metric-row"><span><CircleDot size={14} /> ÚLTIMO POLL</span><strong>{formatPoll(snapshot?.agent.lastPollAt ?? null)}</strong></div>
           </div>
-          <div className="left-technical">
-            <span className="tech-kicker">CONNECTION PROTOCOL</span>
-            <span>HTTPS / LONG-POLL</span>
-            <div className="technical-line" /><div className="technical-line short" />
-            <span className="technical-id">LOCAL AGENT {authorized ? "VINCULADO" : "—"}</span>
-          </div>
         </aside>
 
         <section className="hero-panel" aria-label="Representação visual do Alexios">
@@ -453,15 +447,13 @@ export function ControlConsoleV2() {
           <div className="figure-glow" aria-hidden="true" />
           <Character expression={expression} connected={live} visual={snapshot?.core.character} />
           <div className="figure-floor" aria-hidden="true" />
-          <div className="hero-data hero-data-left"><span>FIG. A-01</span><span>HUMANOID INTERFACE</span></div>
-          <div className="hero-data hero-data-right"><span>COORD / 00.00</span><span>VISUAL SYSTEM ONLINE</span></div>
           <div className="hero-label"><i className={live ? "is-live" : ""} /><span>{EXPRESSION_LABELS[expression]}</span><span className="hero-label-mini">/ EMOTION ID</span></div>
         </section>
 
         <aside className="info-panel right-panel" aria-label="Estado do núcleo">
           <div className="section-caption"><span className="section-line" />NÚCLEO INTELIGENTE <span className="section-index">/02</span></div>
           <div className="panel-heading">SISTEMA<span className="muted-dot">.</span></div>
-          <div className="panel-description">Estado operacional do Alexios Core.</div>
+          <div className="panel-description">Disponibilidade e atividade em tempo real.</div>
           <div className={"core-status-card status-" + labels.color}>
             <div className="core-status-head"><Cpu size={18} strokeWidth={1.4} /><span>CORE STATE</span><ArrowUpRight size={14} /></div>
             <span className="core-status-title">{labels.text}</span>
@@ -473,41 +465,74 @@ export function ControlConsoleV2() {
             <div className="metric-row"><span><Volume2 size={14} /> EXPRESSÃO</span><strong>{snapshot ? EXPRESSION_LABELS[expression] : "--"}</strong></div>
             <div className="metric-row"><span><Power size={14} /> CORE POWER</span><strong>{snapshot?.core.power.toUpperCase() ?? "UNKNOWN"}</strong></div>
           </div>
-          <section className="speech-log" aria-label="Última fala do Alexios" aria-live="polite">
-            <div className="speech-title-row">
-              <span className="speech-caption"><Volume2 size={12} /> ÚLTIMA FALA / ALEXIOS</span>
-              {snapshot?.core.protocolVersion === 3 && (
-                <button type="button" className="speech-voice-toggle"
-                  onClick={toggleBrowserVoice}
-                  aria-pressed={voiceEnabled}
-                  title="Reproduzir respostas novas em português no navegador">
-                  {voiceEnabled ? "VOZ LIGADA" : "ATIVAR VOZ"}
-                </button>
-              )}
-            </div>
-            <p>{snapshot?.core.speech.text || "Nenhuma intervenção até o momento. O Alexios pode optar por permanecer em silêncio."}</p>
-            <span className="speech-timestamp">{snapshot?.core.speech.at ? formatPoll(snapshot.core.speech.at) : "AGUARDANDO DECISÃO"}</span>
-            {snapshot?.core.protocolVersion === 3 && (
-              <div className="v3-conversation" aria-label="Diagnóstico da conversa V3">
-                <span className="speech-caption"><Headphones size={12} /> ÚLTIMA FALA DETECTADA / PYTHON</span>
-                <p>{snapshot.conversation?.lastTurn?.text ||
-                  "Nenhuma transcrição de voz recebida nesta instância."}</p>
+          {snapshot?.core.protocolVersion === 3 && (
+            <details className="conversation-details">
+              <summary>
+                <span><Headphones size={14} /> ÚLTIMA ENTRADA</span>
+                <span className="conversation-disclosure">DETALHES</span>
+              </summary>
+              <div className="conversation-details-body">
+                <p className="conversation-details-text">
+                  {snapshot.conversation?.lastTurn?.text ||
+                    "Nenhuma transcrição recebida nesta instância."}
+                </p>
                 <span className="speech-timestamp">
                   {snapshot.conversation?.lastTurn
                     ? `#${snapshot.conversation.lastTurn.sequence} · ${snapshot.conversation.lastTurn.speakerId} · ${snapshot.conversation.lastTurn.status}`
                     : "AGUARDANDO TRANSCRIÇÃO"}
                 </span>
-                <p className="v3-floor-status" role="status">{floorSummary(snapshot)}</p>
+                <p className="conversation-floor-status">{floorSummary(snapshot)}</p>
                 <span className="speech-timestamp">
-                  EVENTOS {snapshot.conversation?.processedSequence ?? 0} /
-                  {snapshot.conversation?.acceptedSequence ?? 0}
+                  EVENTOS {snapshot.conversation?.processedSequence ?? 0} / {snapshot.conversation?.acceptedSequence ?? 0}
                 </span>
               </div>
-            )}
-          </section>
+            </details>
+          )}
           {snapshot?.core.lastError && <p className="speech-error" role="status">{snapshot.core.lastError}</p>}
-          <div className="right-technical"><div className="technical-line" /><div className="technical-line short" /><span>RESPONSE CHANNEL // LIVE</span></div>
         </aside>
+
+        <section
+          className={`response-focus ${expression === "speaking" ? "response-focus--speaking" : ""}`}
+          aria-label="Última resposta do Alexios"
+        >
+          <div className="response-focus-header">
+            <div className="response-focus-identity">
+              <span className="response-focus-indicator" aria-hidden="true" />
+              <span>CANAL DE RESPOSTA</span>
+              <span className="response-focus-channel">/ ALEXIOS</span>
+            </div>
+            {snapshot?.core.protocolVersion === 3 && (
+              <button
+                type="button"
+                className="speech-voice-toggle response-voice-button"
+                onClick={toggleBrowserVoice}
+                aria-pressed={voiceEnabled}
+                title="Ler novas respostas em português no navegador"
+              >
+                <Volume2 size={14} aria-hidden="true" />
+                {voiceEnabled ? "VOZ ATIVADA" : "ATIVAR VOZ"}
+              </button>
+            )}
+          </div>
+          <div className="response-focus-content" aria-live="polite" aria-atomic="true">
+            <span className="response-focus-eyebrow">ÚLTIMA RESPOSTA</span>
+            <p className={snapshot?.core.speech.text ? "response-focus-text" : "response-focus-text response-focus-text--empty"}>
+              {snapshot?.core.speech.text ||
+                "Aguardando a próxima resposta. O Alexios também pode optar por permanecer em silêncio."}
+            </p>
+          </div>
+          <div className="response-focus-footer">
+            <span>{snapshot?.core.speech.at
+              ? `PUBLICADA ÀS ${formatPoll(snapshot.core.speech.at)}`
+              : "NENHUMA RESPOSTA PUBLICADA"}</span>
+            <span className="response-focus-state">
+              <span className={`small-led ${live ? "small-led--online" : ""}`} aria-hidden="true" />
+              {powerView === "running" ? "NÚCLEO ATIVO" :
+                powerView === "stopped" ? "NÚCLEO EM REPOUSO" :
+                "AGUARDANDO CONEXÃO"}
+            </span>
+          </div>
+        </section>
 
         <div className="vertical-rail rail-left" aria-hidden="true"><span>AX // 041.734</span></div>
         <div className="vertical-rail rail-right" aria-hidden="true"><span>NEURAL LINK / LOCAL NETWORK</span></div>
