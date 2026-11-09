@@ -4,7 +4,7 @@
  * scoped to the current Python run. Never carry speaker_03 from a previous
  * run over to an unrelated speaker_03.
  */
-import {MAX_CONTEXT_CHARS} from "./persona-core.ts";
+import {MAX_CONTEXT_CHARS} from "./context-limits.ts";
 
 const BLOCK = /\n?\[Vozes da execucao ([0-9a-f]{8})\]\n((?:speaker_\d{2,8} = [^\n]{1,70}\n?)*)/gi;
 const MAP_LINE = /^speaker_(\d{2,8}) = ([^\r\n]{1,50})$/gm;
