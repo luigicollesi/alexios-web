@@ -104,7 +104,7 @@ export function openRouterCompletionText(raw: unknown): string {
       const item = part as Record<string, unknown>;
       return item.type === "text" && typeof item.text === "string"
         ? item.text : "";
-    }).filter(Boolean).join("\n");
+    }).filter(Boolean).join("");
     if (combined.trim()) return combined;
   }
   throw new OpenRouterShapeError("empty_content", details);
