@@ -108,3 +108,8 @@ test("provider problems route to queued RESPOND rather than being mistaken for s
     assert.equal(fastShouldUseQueuedFallback(reason), false, reason);
   }
 });
+
+test("Fast direct question wrongly classified as silence retries via durable queue", () => {
+  assert.equal(fastFailureCode(new Error("direct_request_silent")), "direct_request_silent");
+  assert.equal(fastShouldUseQueuedFallback("direct_request_silent"), true);
+});
