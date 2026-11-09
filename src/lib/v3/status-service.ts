@@ -46,6 +46,7 @@ export async function statusConversationV3(agentId: string) {
        SELECT sequence, run_id, status, speaker_id, transcript, received_at
        FROM public.alexios_v3_events
        WHERE agent_id = st.agent_id
+         AND run_id = st.active_run_id
          AND event_type IN ('turn_end', 'turn_chunk')
        ORDER BY sequence DESC LIMIT 1
      ) last_turn ON TRUE
@@ -63,7 +64,8 @@ export async function statusConversationV3(agentId: string) {
        SELECT sequence, status, last_error, fast_status, fast_model_ms,
          fast_error, fast_context_applied, received_at
        FROM public.alexios_v3_events
-       WHERE agent_id = st.agent_id AND event_type = 'floor_open'
+       WHERE agent_id = st.agent_id AND run_id = st.active_run_id
+         AND event_type = 'floor_open'
        ORDER BY sequence DESC LIMIT 1
      ) last_floor ON TRUE
      WHERE st.agent_id = $1::uuid`,
