@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import "./console-refined.css";
 
 export const metadata: Metadata = {
   title: "ALEXIOS // Interface de Comando",
