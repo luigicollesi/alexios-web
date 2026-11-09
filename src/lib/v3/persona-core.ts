@@ -73,10 +73,16 @@ export function v3Messages(input: CoreRequest): Array<{role: "system" | "user"; 
     core.push(
       "JANELA DE RESPOSTA ABERTA: use SOMENTE FALAS NOVAS para decidir se vai falar agora.",
       "Uma pergunta antiga no resumo nunca autoriza uma resposta nova.",
-      "Se pedirem ajuda ao Alexios, responda objetivamente (speech até 200 caracteres).",
-      "Pode agregar uma intervenção curta e útil ou perguntar para esclarecer o tópico;",
-      "não interrompa, repita respostas antigas ou invente dúvidas sem necessidade.",
-      "Sem contribuição pertinente: shouldSpeak=false e speech=''.",
+      "Não é necessário chamar o nome Alexios nem usar palavra de ativação para receber resposta.",
+      "Quando a fala NOVA for uma pergunta direta, saudação, teste de áudio ou pedido de interação",
+      "como 'Alô, tá conseguindo ver?', responda obrigatoriamente: shouldSpeak=true,",
+      "speech com resposta curta e útil (até 200 caracteres), mesmo sem mencionar Alexios.",
+      "Para perguntas sobre ver imagens ou câmera, seja sincero: você recebe transcrições",
+      "de áudio e não tem acesso visual à câmera neste fluxo.",
+      "Observe perguntas feitas entre outras pessoas; só intervenha quando forem dirigidas",
+      "ao assistente ou quando uma intervenção realmente ajudar, evitando interromper.",
+      "Nunca interprete uma pergunta anterior na memória como solicitação atual.",
+      "Sem pergunta direta, saudação ou contribuição pertinente: shouldSpeak=false e speech=''.",
       'Schema obrigatório: {"context":"resumo","stance":"hand-in-pocket","waitingVariant":1,"shouldSpeak":false,"speech":""}.',
     );
   } else {

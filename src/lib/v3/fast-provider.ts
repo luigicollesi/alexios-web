@@ -119,6 +119,8 @@ export function fastShouldUseQueuedFallback(reason: string): boolean {
 
 /** Error descriptions are intentionally bounded machine-readable codes. */
 export function fastFailureCode(error: unknown): string {
+  if (error instanceof Error && error.message === "direct_request_silent")
+    return "direct_request_silent";
   if (error instanceof OpenRouterShapeError) return error.kind;
   if (error instanceof FastProviderHttpError) {
     return "http_" + error.status;

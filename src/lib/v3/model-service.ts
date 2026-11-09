@@ -4,6 +4,7 @@ import {
   type ObserveDecision, type RespondDecision,
 } from "@/lib/v3/model-protocol";
 import {v3Messages} from "@/lib/v3/persona-core";
+import {repairDirectSilence} from "@/lib/v3/response-intent";
 import {openRouterCompletionText, OpenRouterShapeError} from "@/lib/v3/fast-provider";
 import type {Frame} from "@/lib/v3/protocol";
 
@@ -79,7 +80,8 @@ async function requestModel(input: Input): Promise<ObserveDecision | RespondDeci
         }
         const data: unknown = await response.json();
         const raw = openRouterCompletionText(data);
-        return input.mode === "OBSERVE" ? parseObserve(raw) : parseRespond(raw);
+        return input.mode === "OBSERVE" ? parseObserve(raw) :
+          repairDirectSilence(parseRespond(raw), input.recentTurns || "");
       } catch (error) {
         const err = error instanceof Error ? error : new Error(String(error));
         if (/OpenRouter HTTP (400|401|403)/.test(err.message)) throw err;
@@ -109,7 +111,8 @@ async function requestModel(input: Input): Promise<ObserveDecision | RespondDeci
   console.warn("[Alexios V3] fallback determinístico", {
     mode: input.mode, reason: lastError,
   });
-  return input.mode === "OBSERVE" ? fallbackObserve(input) : fallbackRespond(input);
+  return input.mode === "OBSERVE" ? fallbackObserve(input) :
+    repairDirectSilence(fallbackRespond(input), input.recentTurns || "");
 }
 
 export async function observeV3(input: Omit<Input,"mode">): Promise<ObserveDecision> {

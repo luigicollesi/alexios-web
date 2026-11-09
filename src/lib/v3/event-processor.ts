@@ -424,6 +424,8 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
       latencyBeforeProcessingMs,
       inferenceAndCommitMs: Date.now() - startedAt,
       degraded: "degraded" in decision && decision.degraded === true,
+      silenceRepaired: "directSilenceRepaired" in decision &&
+        decision.directSilenceRepaired === true,
       responseRequested: job.event_type === "floor_open"
         ? ("shouldSpeak" in decision && decision.shouldSpeak) : false,
       responsePublished: outcome.speechPublished,
