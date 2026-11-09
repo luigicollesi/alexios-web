@@ -15,19 +15,19 @@ consome a sequência como `obsolete`, sem chamar OBSERVE, RESPOND ou Fast,
 sem modificar memória e sem interferir na fala atual. Os eventos de
 `speech_started` não mudam a pose durante a reprodução.
 
-## Migração necessária antes de publicar o código
+## Migração aplicada no Neon de produção
 
-Executar no projeto Neon que atende `alexios-web`, em transação e com
-backup/snapshot disponível:
+A migração aditiva `db/migrations/007_v3_playback_guard.sql` foi aplicada
+em **2026-11-09** ao projeto `long-bar-99133807`, banco `neondb`,
+branch `production` (`br-withered-band-b65f8x75`).
 
-```sql
--- Executar o conteúdo versionado deste arquivo:
--- db/migrations/007_v3_playback_guard.sql
-```
+Verificação após aplicação: tabela `public.alexios_v3_playbacks` existente,
+6 colunas, índice `alexios_v3_playbacks_active_idx` existente.
+A migração foi preparada e testada em branch temporária, depois aplicada
+na produção e a branch temporária foi eliminada. Não há nova env var.
 
-Essa migração é **aditiva**, sem alterações destrutivas. Ela deve estar
-aplicada no banco antes da nova aplicação chegar à `main`, pois os
-endpoints V3 consultam a tabela nas requisições. Não há nova env var.
+**A implementação continua apenas nesta PR até ser aprovada e integrada
+à `main`**.
 
 ## Memória de locutores
 
