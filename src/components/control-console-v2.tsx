@@ -1,10 +1,12 @@
 "use client";
 
 import {
-  Activity, ArrowDownRight, ArrowUpRight, Check, CircleDot, Cpu,
+  Activity, ArrowUpRight, ChevronDown, CircleDot, Cpu,
   Headphones, LockKeyhole, Power, Radio, ShieldCheck, Volume2, WifiOff, X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import { useAlexiosVoice } from "@/hooks/use-alexios-voice";
+import { playbackAvatar } from "@/lib/tts/voice-avatar";
 import {
   derivePowerView, EXPRESSION_LABELS, normalizeStatus,
   type AlexiosStatus, type ExpressionId, type PowerAction, type CharacterVisual,
@@ -138,9 +140,9 @@ export function ControlConsoleV2() {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [pending, setPending] = useState<PowerAction | null>(null);
-  const [voiceEnabled, setVoiceEnabled] = useState(false);
-  const lastSeenSpeech = useRef<number | null>(null);
-  const lastSeenActivity = useRef<number | null>(null);
+  const {
+    voiceEnabled, playbackState, isPlaying, voiceError, toggleVoice, stopPlayback,
+  } = useAlexiosVoice(snapshot, authorized);
 
   useEffect(() => {
     const resize = () => {
@@ -233,58 +235,14 @@ export function ControlConsoleV2() {
     };
   }, [authorized]);
 
-  // Browser TTS is opt-in and must follow a user gesture. Never replay
-  // an old speech_seq on initial login, refresh or voice enabling.
-  useEffect(() => {
-    if (!snapshot) return;
-    const sequence = snapshot.core.speech.seq;
-    const activityEpoch = snapshot.conversation?.activityEpoch ?? null;
-    if (lastSeenSpeech.current === null) {
-      lastSeenSpeech.current = sequence;
-      lastSeenActivity.current = activityEpoch;
-      return;
-    }
-    const newVoiceActivity = activityEpoch !== null &&
-      lastSeenActivity.current !== null &&
-      activityEpoch > lastSeenActivity.current;
-    lastSeenActivity.current = activityEpoch;
-    if (newVoiceActivity && typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
-    if (sequence <= lastSeenSpeech.current) return;
-    lastSeenSpeech.current = sequence;
-    if (!voiceEnabled || snapshot.core.protocolVersion !== 3 ||
-        snapshot.core.power !== "running" || !snapshot.core.speech.text ||
-        !("speechSynthesis" in window)) return;
-    const at = snapshot.core.speech.at ? Date.parse(snapshot.core.speech.at) : NaN;
-    if (!Number.isFinite(at) || Date.now() - at > 5_000) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(snapshot.core.speech.text);
-    utterance.lang = "pt-BR";
-    utterance.rate = 1.12;
-    const voices = window.speechSynthesis.getVoices();
-    const brasil = voices.find(voice => voice.lang.toLowerCase() === "pt-br");
-    if (brasil) utterance.voice = brasil;
-    window.speechSynthesis.speak(utterance);
-  }, [snapshot, voiceEnabled]);
-
-  useEffect(() => {
-    return () => {
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
-    };
-  }, []);
-
-  const toggleBrowserVoice = () => {
-    if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    setVoiceEnabled(value => !value);
-  };
-
   const powerView = derivePowerView(snapshot);
   const live = powerView !== "offline";
-  const expression = snapshot?.core.expressionId ?? "idle";
+  const { expression, visual: avatarVisual } = playbackAvatar(
+    snapshot?.core.expressionId ?? "idle",
+    snapshot?.core.character,
+    voiceEnabled && snapshot?.core.protocolVersion === 3,
+    isPlaying,
+  );
   const labels = statusCopy(powerView);
 
   useEffect(() => {
@@ -327,6 +285,7 @@ export function ControlConsoleV2() {
   }, [tokenDraft]);
 
   const logoutPanel = useCallback(async () => {
+    stopPlayback();
     try {
       const response = await fetch(API_LOGOUT, {
         method: "POST", credentials: "same-origin",
@@ -342,11 +301,12 @@ export function ControlConsoleV2() {
     } catch (error) {
       setConnectionError(error instanceof Error ? error.message : "Falha ao sair.");
     }
-  }, []);
+  }, [stopPlayback]);
 
   const sendPower = useCallback(async () => {
     if (!authorized || pending || (powerView !== "running" && powerView !== "stopped")) return;
     const action: PowerAction = powerView === "running" ? "stop" : "start";
+    if (action === "stop") stopPlayback();
     setPending(action);
     setCommandError(null);
     try {
@@ -368,7 +328,7 @@ export function ControlConsoleV2() {
       setPending(null);
       setCommandError(error instanceof Error ? error.message : "Erro ao enviar comando.");
     }
-  }, [authorized, pending, powerView]);
+  }, [authorized, pending, powerView, stopPlayback]);
 
   const powerLabel = useMemo(() => {
     if (pending === "stop") return "ENCERRANDO";
@@ -386,167 +346,177 @@ export function ControlConsoleV2() {
   return (
     <main className="viewport">
       <div className="world-grid" aria-hidden="true" />
-      <div className="console-stage" style={stageStyle}>
+      <div className="console-stage console-stage--refined" style={stageStyle}>
         <div className="stage-noise" aria-hidden="true" />
         <div className="stage-graticule" aria-hidden="true" />
-        <span className="edge-corner edge-corner-tl" aria-hidden="true" />
-        <span className="edge-corner edge-corner-tr" aria-hidden="true" />
-        <span className="edge-corner edge-corner-bl" aria-hidden="true" />
-        <span className="edge-corner edge-corner-br" aria-hidden="true" />
 
         <header className="topbar">
-          <div className="brand-mark" aria-hidden="true"><span>A</span><i /></div>
-          <div className="brand-copy">
-            <span className="brand-name">ALEXIOS<span className="brand-stop">.</span></span>
-            <span className="brand-caption">INTELLIGENCE CONTROL SYSTEM</span>
+          <div className="brand-lockup">
+            <div className="brand-mark" aria-hidden="true"><span>A</span><i /></div>
+            <div className="brand-copy">
+              <span className="brand-name">ALEXIOS<span className="brand-stop">.</span></span>
+              <span className="brand-caption">INTELLIGENCE INTERFACE / 03</span>
+            </div>
           </div>
-          <div className="header-divider" />
-          <div className="header-environment"><CircleDot size={13} /><span>CORE INTERFACE <b>01</b></span></div>
           <div className="header-spacer" />
-          <div className={"header-connection " + (apiAvailable ? "connected" : "")}>
-            <span className="small-led" />
+          <div className={"header-connection " + (apiAvailable ? "connected" : "")} role="status">
+            <span className="small-led" aria-hidden="true" />
             <span>{statusText}</span>
           </div>
           <button className="access-button" onClick={() => setLoginOpen(true)} type="button">
-            <LockKeyhole size={15} strokeWidth={1.8} />
-            {authorized ? "ALTERAR ACESSO" : "AUTORIZAR ACESSO"}
-            <ArrowUpRight size={14} />
+            <LockKeyhole size={20} strokeWidth={1.8} aria-hidden="true" />
+            <span>{authorized ? "GERENCIAR ACESSO" : "AUTORIZAR ACESSO"}</span>
+            <ArrowUpRight size={18} aria-hidden="true" />
           </button>
         </header>
 
-        <div className="top-ruler" aria-hidden="true"><span>01 / SYSTEM OVERVIEW</span><span>REMOTE INTELLIGENCE // A-01</span></div>
+        <div className="hud-horizon" aria-hidden="true">
+          <span>INTELLIGENCE CORE</span><i /><span>OPERATIONAL INTERFACE</span>
+        </div>
 
-        <aside className="info-panel left-panel" aria-label="Estado da conexão">
-          <div className="section-caption"><span className="section-line" />LINK DE CONTROLE <span className="section-index">/01</span></div>
-          <div className="panel-heading">CONEXÃO<span className="muted-dot">.</span></div>
-          <div className="panel-description">Canal seguro de comunicação com o agente local.</div>
-          <div className="glass-strip">
-            <div className="strip-icon"><Radio size={22} strokeWidth={1.3} /></div>
-            <div>
-              <div className="mini-label">AGENT STATUS</div>
-              <div className={"strip-value " + (live ? "available" : "")}>
-                {live ? "CONECTADO" : "DESCONECTADO"}
-              </div>
-            </div>
-            <div className={"signal-waves " + (live ? "active" : "")}><i /><i /><i /><i /></div>
-          </div>
-          <div className="panel-metrics">
-            <div className="metric-row"><span><Activity size={14} /> LONG POLLING</span><strong>{live ? "ATIVO" : "INATIVO"}</strong></div>
-            <div className="metric-row"><span><ShieldCheck size={14} /> SERVIÇO API</span><strong>{apiAvailable ? "ONLINE" : "--"}</strong></div>
-            <div className="metric-row"><span><CircleDot size={14} /> ÚLTIMO POLL</span><strong>{formatPoll(snapshot?.agent.lastPollAt ?? null)}</strong></div>
-          </div>
-          <div className="left-technical">
-            <span className="tech-kicker">CONNECTION PROTOCOL</span>
-            <span>HTTPS / LONG-POLL</span>
-            <div className="technical-line" /><div className="technical-line short" />
-            <span className="technical-id">LOCAL AGENT {authorized ? "VINCULADO" : "—"}</span>
-          </div>
-        </aside>
-
-        <section className="hero-panel" aria-label="Representação visual do Alexios">
+        <section className="hero-panel" aria-label="Personagem Alexios">
           <div className="hero-backtitle" aria-hidden="true">ALEXIOS</div>
           <div className="hero-orbit orbit-external" aria-hidden="true" />
           <div className="hero-orbit orbit-internal" aria-hidden="true" />
           <div className="orbit-ticks" aria-hidden="true" />
-          <div className="orbit-crosshair orbit-crosshair-l" aria-hidden="true">+</div>
-          <div className="orbit-crosshair orbit-crosshair-r" aria-hidden="true">+</div>
           <div className="figure-glow" aria-hidden="true" />
-          <Character expression={expression} connected={live} visual={snapshot?.core.character} />
+          <Character expression={expression} connected={live} visual={avatarVisual} />
           <div className="figure-floor" aria-hidden="true" />
-          <div className="hero-data hero-data-left"><span>FIG. A-01</span><span>HUMANOID INTERFACE</span></div>
-          <div className="hero-data hero-data-right"><span>COORD / 00.00</span><span>VISUAL SYSTEM ONLINE</span></div>
-          <div className="hero-label"><i className={live ? "is-live" : ""} /><span>{EXPRESSION_LABELS[expression]}</span><span className="hero-label-mini">/ EMOTION ID</span></div>
+          <div className="hero-label">
+            <i className={live ? "is-live" : ""} />
+            <span>{EXPRESSION_LABELS[expression]}</span>
+          </div>
         </section>
 
-        <aside className="info-panel right-panel" aria-label="Estado do núcleo">
-          <div className="section-caption"><span className="section-line" />NÚCLEO INTELIGENTE <span className="section-index">/02</span></div>
-          <div className="panel-heading">SISTEMA<span className="muted-dot">.</span></div>
-          <div className="panel-description">Estado operacional do Alexios Core.</div>
-          <div className={"core-status-card status-" + labels.color}>
-            <div className="core-status-head"><Cpu size={18} strokeWidth={1.4} /><span>CORE STATE</span><ArrowUpRight size={14} /></div>
-            <span className="core-status-title">{labels.text}</span>
-            <span className="core-status-detail">{labels.detail}</span>
-            <div className="core-status-track"><i /></div>
-          </div>
-          <div className="panel-metrics right-metrics">
-            <div className="metric-row"><span><Headphones size={14} /> VOZ / ESCUTA</span><strong>{powerView === "running" ? "DISPONÍVEL" : "--"}</strong></div>
-            <div className="metric-row"><span><Volume2 size={14} /> EXPRESSÃO</span><strong>{snapshot ? EXPRESSION_LABELS[expression] : "--"}</strong></div>
-            <div className="metric-row"><span><Power size={14} /> CORE POWER</span><strong>{snapshot?.core.power.toUpperCase() ?? "UNKNOWN"}</strong></div>
-          </div>
-          <section className="speech-log" aria-label="Última fala do Alexios" aria-live="polite">
-            <div className="speech-title-row">
-              <span className="speech-caption"><Volume2 size={12} /> ÚLTIMA FALA / ALEXIOS</span>
-              {snapshot?.core.protocolVersion === 3 && (
-                <button type="button" className="speech-voice-toggle"
-                  onClick={toggleBrowserVoice}
-                  aria-pressed={voiceEnabled}
-                  title="Reproduzir respostas novas em português no navegador">
-                  {voiceEnabled ? "VOZ LIGADA" : "ATIVAR VOZ"}
-                </button>
-              )}
+        <section className="power-dock" aria-label="Controle principal de energia">
+          <div className="power-rule">CONTROLE PRINCIPAL</div>
+          <div className="power-control">
+            <div className={"power-outer power-" + (pending ? "transitioning" : powerView)}>
+              <button
+                type="button"
+                className="power-button"
+                onClick={() => void sendPower()}
+                disabled={!!pending || (powerView !== "running" && powerView !== "stopped")}
+                aria-label={powerView === "running" ? "Desligar Alexios Core" :
+                  powerView === "stopped" ? "Ligar Alexios Core" : "Controle de energia indisponível"}
+              >
+                <Power size={31} strokeWidth={1.8} aria-hidden="true" />
+                <span>{powerLabel}</span>
+              </button>
             </div>
-            <p>{snapshot?.core.speech.text || "Nenhuma intervenção até o momento. O Alexios pode optar por permanecer em silêncio."}</p>
-            <span className="speech-timestamp">{snapshot?.core.speech.at ? formatPoll(snapshot.core.speech.at) : "AGUARDANDO DECISÃO"}</span>
-            {snapshot?.core.protocolVersion === 3 && (
-              <div className="v3-conversation" aria-label="Diagnóstico da conversa V3">
-                <span className="speech-caption"><Headphones size={12} /> ÚLTIMA FALA DETECTADA / PYTHON</span>
-                <p>{snapshot.conversation?.lastTurn?.text ||
-                  "Nenhuma transcrição de voz recebida nesta instância."}</p>
-                <span className="speech-timestamp">
-                  {snapshot.conversation?.lastTurn
-                    ? `#${snapshot.conversation.lastTurn.sequence} · ${snapshot.conversation.lastTurn.speakerId} · ${snapshot.conversation.lastTurn.status}`
-                    : "AGUARDANDO TRANSCRIÇÃO"}
-                </span>
-                <p className="v3-floor-status" role="status">{floorSummary(snapshot)}</p>
-                <span className="speech-timestamp">
-                  EVENTOS {snapshot.conversation?.processedSequence ?? 0} /
-                  {snapshot.conversation?.acceptedSequence ?? 0}
-                </span>
-              </div>
-            )}
-          </section>
-          {snapshot?.core.lastError && <p className="speech-error" role="status">{snapshot.core.lastError}</p>}
-          <div className="right-technical"><div className="technical-line" /><div className="technical-line short" /><span>RESPONSE CHANNEL // LIVE</span></div>
+            <span className="power-help" role="status">
+              <span className={"help-light " + (live ? "active" : "")} aria-hidden="true" />
+              {pending ? "AGUARDANDO CONFIRMAÇÃO DO AGENTE" :
+                live ? "CONTROLE REMOTO DISPONÍVEL" : "AGENTE DESCONECTADO"}
+            </span>
+          </div>
+        </section>
+
+        <aside className="system-monitor" aria-label="Resumo da conexão e do núcleo">
+          <div className="monitor-heading">
+            <span>TELEMETRIA</span>
+            <span className="monitor-heading-serial">/ 01</span>
+          </div>
+          <div className="monitor-readout">
+            <div className="monitor-readout-label"><Radio size={15} /> CONEXÃO</div>
+            <strong className={live ? "monitor-good" : "monitor-muted"}>
+              {live ? "AGENTE ONLINE" : "AGENTE OFFLINE"}
+            </strong>
+          </div>
+          <div className="monitor-readout">
+            <div className="monitor-readout-label"><Cpu size={15} /> NÚCLEO</div>
+            <strong className={powerView === "running" ? "monitor-warm" : "monitor-muted"}>
+              {labels.text}
+            </strong>
+          </div>
+          <details className="monitor-details">
+            <summary>DETALHES DA CONEXÃO <ChevronDown size={15} aria-hidden="true" /></summary>
+            <div className="monitor-details-body">
+              <div className="monitor-detail-row"><span><ShieldCheck size={13} /> SERVIÇO API</span><strong>{apiAvailable ? "ONLINE" : "INDISPONÍVEL"}</strong></div>
+              <div className="monitor-detail-row"><span><Activity size={13} /> LONG POLLING</span><strong>{live ? "ATIVO" : "INATIVO"}</strong></div>
+              <div className="monitor-detail-row"><span><CircleDot size={13} /> ÚLTIMO CONTATO</span><strong>{formatPoll(snapshot?.agent.lastPollAt ?? null)}</strong></div>
+              <div className="monitor-detail-row"><span>CORE POWER</span><strong>{snapshot?.core.power.toUpperCase() ?? "UNKNOWN"}</strong></div>
+              <div className="monitor-detail-row"><span>VERSÃO</span><strong>V{snapshot?.core.protocolVersion ?? "—"}</strong></div>
+              {snapshot?.core.protocolVersion === 3 && (
+                <div className="monitor-conversation">
+                  <span className="monitor-subtitle"><Headphones size={13} /> ÚLTIMA FALA RECEBIDA</span>
+                  <p>{snapshot.conversation?.lastTurn?.text || "Nenhuma transcrição recebida."}</p>
+                  <span className="monitor-metadata">
+                    {snapshot.conversation?.lastTurn
+                      ? `#${snapshot.conversation.lastTurn.sequence} · ${snapshot.conversation.lastTurn.speakerId} · ${snapshot.conversation.lastTurn.status}`
+                      : "AGUARDANDO"}
+                  </span>
+                  <span className="monitor-subtitle monitor-subtitle--spaced">PROCESSAMENTO</span>
+                  <p>{floorSummary(snapshot)}</p>
+                  <span className="monitor-metadata">
+                    EVENTOS {snapshot.conversation?.processedSequence ?? 0} / {snapshot.conversation?.acceptedSequence ?? 0}
+                  </span>
+                </div>
+              )}
+              {snapshot?.core.lastError && <p className="monitor-error" role="alert">{snapshot.core.lastError}</p>}
+            </div>
+          </details>
         </aside>
 
-        <div className="vertical-rail rail-left" aria-hidden="true"><span>AX // 041.734</span></div>
-        <div className="vertical-rail rail-right" aria-hidden="true"><span>NEURAL LINK / LOCAL NETWORK</span></div>
-
-        <section className="power-dock" aria-label="Controle de energia">
-          <div className="power-rule"><span /><b>POWER CONTROL</b><span /></div>
-          <div className="power-dock-content">
-            <div className="power-side-note left">
-              <span className="note-symbol"><ArrowDownRight size={20} strokeWidth={1.2} /></span>
-              <span>REMOTE<br />OVERRIDE</span>
+        <section
+          className={`response-focus ${isPlaying ? "response-focus--speaking" : ""}`}
+          aria-label="Última resposta do Alexios"
+        >
+          <div className="response-focus-header">
+            <div className="response-focus-identity">
+              <span className="response-focus-indicator" aria-hidden="true" />
+              <span>RESPOSTA DO ALEXIOS</span>
+              {playbackState === "generating" && (
+                <span className="response-voice-status">PREPARANDO ÁUDIO</span>
+              )}
+              {playbackState === "playing" && (
+                <span className="response-voice-status">REPRODUZINDO</span>
+              )}
             </div>
-            <div className="power-control">
-              <div className={"power-outer power-" + (pending ? "transitioning" : powerView)}>
-                <div className="power-bracket bracket-left" /><div className="power-bracket bracket-right" />
-                <button
-                  type="button"
-                  className="power-button"
-                  onClick={() => void sendPower()}
-                  disabled={!!pending || (powerView !== "running" && powerView !== "stopped")}
-                  aria-label={powerView === "running" ? "Desligar Alexios Core" : powerView === "stopped" ? "Ligar Alexios Core" : "Controle de energia indisponível"}
-                >
-                  <Power size={24} strokeWidth={1.8} />
-                  <span>{powerLabel}</span>
-                  <span className="button-chevron">/</span>
-                </button>
-              </div>
-              <div className="power-help">
-                <span className={"help-light " + (live ? "active" : "")} />
-                {pending ? "COMANDO ENVIADO • AGUARDANDO CONFIRMAÇÃO" : live ? "CONTROLE REMOTO HABILITADO" : "CONECTE UM AGENT PARA HABILITAR"}
-              </div>
-            </div>
-            <div className="power-side-note right"><span>TERMINAL<br />OPERATION</span><span className="note-symbol"><Check size={18} strokeWidth={1.2} /></span></div>
+            {snapshot?.core.protocolVersion === 3 && (
+              <button
+                type="button"
+                className="speech-voice-toggle response-voice-button"
+                onClick={() => void toggleVoice()}
+                aria-pressed={voiceEnabled}
+                title="Ativar ou desativar o Cartesia Sonic 3.6, voz Rafael"
+              >
+                <Volume2 size={15} aria-hidden="true" />
+                <span>{voiceEnabled ? "RAFAEL ATIVO" : "ATIVAR RAFAEL"}</span>
+              </button>
+            )}
           </div>
-          {(commandError || connectionError) && (
-            <div className="console-error" role="alert"><WifiOff size={13} />{commandError || connectionError}</div>
-          )}
+          <div className="response-focus-content">
+            <p className={snapshot?.core.speech.text
+              ? "response-focus-text"
+              : "response-focus-text response-focus-text--empty"}
+              aria-live="polite"
+              aria-atomic="true"
+            >
+              {snapshot?.core.speech.text ||
+                "Aguardando a próxima resposta. O Alexios também pode escolher permanecer em silêncio."}
+            </p>
+          </div>
+          {voiceError && <p className="tts-feedback" role="status">{voiceError}</p>}
+          <div className="response-focus-footer">
+            <span>{snapshot?.core.speech.at
+              ? `RESPONDIDO ÀS ${formatPoll(snapshot.core.speech.at)}`
+              : "AGUARDANDO RESPOSTA"}
+            </span>
+            <span className="response-focus-footer-id">ALEXIOS // SYSTEM 01</span>
+          </div>
         </section>
 
-        <footer className="footerbar"><span>© 2026 BELLUM CIVILE / ALEXIOS PROJECT</span><span>CONTROL UNIT <b>001</b></span><span>DESIGNED FOR CONTINUOUS OPERATION <i /></span></footer>
+        {(commandError || connectionError) && (
+          <div className="console-error" role="alert">
+            <WifiOff size={16} aria-hidden="true" /> {commandError || connectionError}
+          </div>
+        )}
+
+        <footer className="footerbar">
+          <span>ALEXIOS / INTELLIGENCE CONTROL</span>
+          <span>INTERFACE V{snapshot?.core.protocolVersion ?? "—"}</span>
+        </footer>
 
         {loginOpen && (
           <div className="modal-overlay" onMouseDown={(event) => {
