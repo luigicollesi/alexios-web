@@ -60,7 +60,7 @@ test("raw PCM f32le can be split on arbitrary byte boundaries without corruption
   const first = pcm.push(bytes.slice(7, 11));
   assert.equal(first.length, 1);
   assert.deepEqual([...first[0]], [0.5, -0.25]);
-  const second = pcm.push(bytes.slice(11, 19));
+  const second = pcm.push(bytes.slice(11));
   assert.equal(second.length, 1);
   assert.deepEqual([...second[0]], [1, -1]);
   assert.deepEqual([...pcm.flush()], [0.125]);
