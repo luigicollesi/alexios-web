@@ -3,6 +3,7 @@ import { AgentError, query, numeric } from "@/lib/agent-db";
 import { connected, findInstance, sessionFor } from "@/lib/v2/agent-service";
 import { parseIdentity, parseActivity, parseV3Event, type IncomingEvent, type V3EventKind } from "@/lib/v3/protocol";
 import {fastLaneEnabled} from "@/lib/v3/fast-protocol";
+import {latestUtteranceFromCumulative} from "@/lib/v3/transcript-delta";
 
 type Auth = {agentId: string; runId: string};
 
@@ -142,6 +143,25 @@ export async function acceptV3Event(raw: unknown, type: V3EventKind) {
     return {accepted: true, duplicate: true, eventId: event.eventId};
   }
 
+  // Preserve the raw event payload for idempotent retransmission. The
+  // transcript column is a canonical *new* utterance for UI and AI only.
+  // A recent previous turn can have a different speaker label because
+  // acoustic diarization IDs are not stable identities.
+  let canonicalTranscript = event.transcript ?? null;
+  if (event.type !== "floor_open" && canonicalTranscript) {
+    const previous = await query<{transcript: string | null}>(
+      `SELECT transcript FROM public.alexios_v3_events
+       WHERE agent_id = $1::uuid AND run_id = $2::uuid
+         AND sequence < $3::bigint AND event_type IN ('turn_end','turn_chunk')
+         AND received_at >= now() - interval '45 seconds'
+       ORDER BY sequence DESC LIMIT 1`,
+      [agentId, runId, event.sequence],
+    );
+    canonicalTranscript = latestUtteranceFromCumulative(
+      canonicalTranscript, previous[0]?.transcript,
+    );
+  }
+
   const rows = await query<{event_id: string}>(
     `WITH accepted AS (
       UPDATE public.alexios_v3_streams st SET
@@ -179,7 +199,7 @@ export async function acceptV3Event(raw: unknown, type: V3EventKind) {
     SELECT event_id FROM inserted`,
     [agentId, runId, event.sequence, type, event.activityEpoch,
      event.eventId, event.turnId ?? null, event.speakerId ?? null,
-     event.transcript ?? null, JSON.stringify(payload), fastLaneEnabled()],
+     canonicalTranscript, JSON.stringify(payload), fastLaneEnabled()],
   );
   if (!rows[0]) {
     throw new AgentError(409, "Sequência inválida, run substituído ou abertura obsoleta.");
