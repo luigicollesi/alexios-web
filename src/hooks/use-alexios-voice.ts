@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { AlexiosStatus } from "@/lib/alexios";
 import { CARTESIA_SAMPLE_RATE } from "@/lib/tts/key-manager";
 import { PcmF32Chunker } from "@/lib/tts/pcm";
+import { shouldInterruptForConfirmedTurn } from "@/lib/tts/interruption-policy";
 
 export type VoicePlaybackState = "idle" | "generating" | "playing";
 
@@ -11,6 +12,9 @@ type ActivePlayback = {
   controller: AbortController;
   sources: Set<AudioBufferSourceNode>;
   streamComplete: boolean;
+  speechText: string;
+  speechAtMs: number;
+  lastTurnSequenceAtStart: number;
 };
 
 /**
@@ -24,7 +28,6 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
   const contextRef = useRef<AudioContext | null>(null);
   const activeRef = useRef<ActivePlayback | null>(null);
   const lastSeenSpeech = useRef<number | null>(null);
-  const lastSeenActivity = useRef<number | null>(null);
 
   // Imperative cancellation is deliberately independent of React state:
   // snapshot effects only synchronize external audio resources.
@@ -57,7 +60,13 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
     });
   }, [cancelAudioResources]);
 
-  const playSpeech = useCallback(async (sequence: number, activityEpoch: number) => {
+  const playSpeech = useCallback(async (
+    sequence: number,
+    activityEpoch: number,
+    speechText: string,
+    speechAtMs: number,
+    lastTurnSequenceAtStart: number,
+  ) => {
     const context = contextRef.current;
     if (!context || context.state === "closed") return;
     stopPlayback();
@@ -65,6 +74,9 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
       controller: new AbortController(),
       sources: new Set(),
       streamComplete: false,
+      speechText,
+      speechAtMs,
+      lastTurnSequenceAtStart,
     };
     activeRef.current = active;
     setPlaybackState("generating");
@@ -149,7 +161,6 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
     if (authorized !== true) {
       stopForSnapshot();
       lastSeenSpeech.current = null;
-      lastSeenActivity.current = null;
       return;
     }
     if (!snapshot) {
@@ -160,15 +171,19 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
     const epoch = snapshot.conversation?.activityEpoch ?? null;
     if (lastSeenSpeech.current === null || seq < lastSeenSpeech.current) {
       lastSeenSpeech.current = seq;
-      lastSeenActivity.current = epoch;
       return; // never speak the last response after login or refresh
     }
-    const newActivity = epoch !== null && lastSeenActivity.current !== null &&
-      epoch > lastSeenActivity.current;
-    lastSeenActivity.current = epoch;
-    if (newActivity || snapshot.core.power !== "running" || !snapshot.agent.connected ||
-        !voiceEnabled) {
-      if (activeRef.current) stopForSnapshot();
+
+    if (activeRef.current) {
+      if (snapshot.core.power !== "running" || !snapshot.agent.connected ||
+          !voiceEnabled ||
+          shouldInterruptForConfirmedTurn(
+            activeRef.current, snapshot.conversation?.lastTurn ?? null,
+          )) {
+        stopForSnapshot();
+      }
+      // Do NOT abort just because activityEpoch increased: the agent microphone
+      // can hear the assistant's own voice and produce VAD speech_started.
     }
     if (seq <= lastSeenSpeech.current) return;
     lastSeenSpeech.current = seq;
@@ -178,7 +193,11 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
         epoch === null || !Number.isFinite(timestamp) ||
         timestamp > Date.now() + 5_000 || Date.now() - timestamp > 5_000) return;
     // Start the network operation after the synchronous React effect phase.
-    queueMicrotask(() => { void playSpeech(seq, epoch); });
+    const baselineTurn = snapshot.conversation?.lastTurn?.sequence ?? 0;
+    const speechText = snapshot.core.speech.text;
+    queueMicrotask(() => {
+      void playSpeech(seq, epoch, speechText, timestamp, baselineTurn);
+    });
   }, [snapshot, authorized, voiceEnabled, stopForSnapshot, playSpeech]);
 
   const toggleVoice = useCallback(async () => {
