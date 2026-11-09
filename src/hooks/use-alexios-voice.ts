@@ -12,6 +12,10 @@ type ActivePlayback = {
   controller: AbortController;
   sources: Set<AudioBufferSourceNode>;
   streamComplete: boolean;
+  speechSeq: number;
+  playbackId: string;
+  leaseStarted: Promise<void> | null;
+  heartbeat: number | null;
   speechText: string;
   speechAtMs: number;
   lastTurnSequenceAtStart: number;
@@ -29,12 +33,42 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
   const activeRef = useRef<ActivePlayback | null>(null);
   const lastSeenSpeech = useRef<number | null>(null);
 
+  const playbackUpdate = useCallback(async (
+    action: "start" | "pulse" | "finish", active: ActivePlayback,
+  ) => {
+    const response = await fetch("/api/v2/alexios/playback", {
+      method: "POST",
+      credentials: "same-origin",
+      cache: "no-store",
+      keepalive: action === "finish",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        action, playbackId: active.playbackId, speechSeq: active.speechSeq,
+      }),
+    });
+    if (!response.ok) throw new Error("Não foi possível sincronizar a escuta com o áudio.");
+  }, []);
+
+  const closePlaybackLease = useCallback((active: ActivePlayback) => {
+    if (active.heartbeat !== null) {
+      window.clearInterval(active.heartbeat);
+      active.heartbeat = null;
+    }
+    if (active.leaseStarted) {
+      // Finish MUST be sent after start, even if it is still in flight.
+      void active.leaseStarted.then(() =>
+        playbackUpdate("finish", active),
+      ).catch(() => {});
+    }
+  }, [playbackUpdate]);
+
   // Imperative cancellation is deliberately independent of React state:
   // snapshot effects only synchronize external audio resources.
   const cancelAudioResources = useCallback(() => {
     const active = activeRef.current;
     activeRef.current = null;
     if (active) {
+      closePlaybackLease(active);
       active.controller.abort();
       for (const source of active.sources) {
         source.onended = null;
@@ -43,7 +77,7 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
       }
       active.sources.clear();
     }
-  }, []);
+  }, [closePlaybackLease]);
 
   const stopPlayback = useCallback((updateUI = true) => {
     cancelAudioResources();
@@ -74,6 +108,10 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
       controller: new AbortController(),
       sources: new Set(),
       streamComplete: false,
+      speechSeq: sequence,
+      playbackId: crypto.randomUUID(),
+      leaseStarted: null,
+      heartbeat: null,
       speechText,
       speechAtMs,
       lastTurnSequenceAtStart,
@@ -106,8 +144,23 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
       let nextStart = context.currentTime + 0.02;
       let hasAudio = false;
 
-      const schedule = (samples: Float32Array) => {
+      const schedule = async (samples: Float32Array) => {
         if (!isCurrent() || !samples.length) return;
+        if (!active.leaseStarted) {
+          // Confirm the server has stopped listening before sound is audible.
+          active.leaseStarted = playbackUpdate("start", active);
+          await active.leaseStarted;
+          if (!isCurrent()) return;
+          active.heartbeat = window.setInterval(() => {
+            void playbackUpdate("pulse", active).catch(() => {
+              if (isCurrent()) {
+                stopPlayback();
+                setVoiceError("Escuta não foi pausada no servidor; áudio interrompido.");
+              }
+            });
+          }, 2_000);
+        }
+        if (!isCurrent()) return;
         const buffer = context.createBuffer(1, samples.length, CARTESIA_SAMPLE_RATE);
         buffer.getChannelData(0).set(samples);
         const source = context.createBufferSource();
@@ -119,6 +172,7 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
           active.sources.delete(source);
           source.disconnect();
           if (isCurrent() && active.streamComplete && active.sources.size === 0) {
+            closePlaybackLease(active);
             activeRef.current = null;
             setPlaybackState("idle");
           }
@@ -135,17 +189,18 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
         const { done, value } = await reader.read();
         if (done) break;
         if (!isCurrent()) break;
-        for (const samples of pcm.push(value)) schedule(samples);
+        for (const samples of pcm.push(value)) await schedule(samples);
       }
       if (!isCurrent()) {
         await reader.cancel().catch(() => {});
         return;
       }
       const tail = pcm.flush();
-      if (tail) schedule(tail);
+      if (tail) await schedule(tail);
       if (!hasAudio) throw new Error("A Cartesia não retornou áudio.");
       active.streamComplete = true;
       if (active.sources.size === 0 && isCurrent()) {
+        closePlaybackLease(active);
         activeRef.current = null;
         setPlaybackState("idle");
       }
@@ -155,7 +210,7 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
       stopPlayback();
       setVoiceError(message);
     }
-  }, [stopPlayback]);
+  }, [stopPlayback, playbackUpdate, closePlaybackLease]);
 
   useEffect(() => {
     if (authorized !== true) {
