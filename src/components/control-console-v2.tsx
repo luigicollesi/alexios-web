@@ -4,7 +4,8 @@ import {
   Activity, ArrowUpRight, ChevronDown, CircleDot, Cpu,
   Headphones, LockKeyhole, Power, Radio, ShieldCheck, Volume2, WifiOff, X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import { useAlexiosVoice } from "@/hooks/use-alexios-voice";
 import {
   derivePowerView, EXPRESSION_LABELS, normalizeStatus,
   type AlexiosStatus, type ExpressionId, type PowerAction, type CharacterVisual,
@@ -138,9 +139,9 @@ export function ControlConsoleV2() {
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [commandError, setCommandError] = useState<string | null>(null);
   const [pending, setPending] = useState<PowerAction | null>(null);
-  const [voiceEnabled, setVoiceEnabled] = useState(false);
-  const lastSeenSpeech = useRef<number | null>(null);
-  const lastSeenActivity = useRef<number | null>(null);
+  const {
+    voiceEnabled, playbackState, isPlaying, voiceError, toggleVoice, stopPlayback,
+  } = useAlexiosVoice(snapshot, authorized);
 
   useEffect(() => {
     const resize = () => {
@@ -233,58 +234,26 @@ export function ControlConsoleV2() {
     };
   }, [authorized]);
 
-  // Browser TTS is opt-in and must follow a user gesture. Never replay
-  // an old speech_seq on initial login, refresh or voice enabling.
-  useEffect(() => {
-    if (!snapshot) return;
-    const sequence = snapshot.core.speech.seq;
-    const activityEpoch = snapshot.conversation?.activityEpoch ?? null;
-    if (lastSeenSpeech.current === null) {
-      lastSeenSpeech.current = sequence;
-      lastSeenActivity.current = activityEpoch;
-      return;
-    }
-    const newVoiceActivity = activityEpoch !== null &&
-      lastSeenActivity.current !== null &&
-      activityEpoch > lastSeenActivity.current;
-    lastSeenActivity.current = activityEpoch;
-    if (newVoiceActivity && typeof window !== "undefined" && "speechSynthesis" in window) {
-      window.speechSynthesis.cancel();
-    }
-    if (sequence <= lastSeenSpeech.current) return;
-    lastSeenSpeech.current = sequence;
-    if (!voiceEnabled || snapshot.core.protocolVersion !== 3 ||
-        snapshot.core.power !== "running" || !snapshot.core.speech.text ||
-        !("speechSynthesis" in window)) return;
-    const at = snapshot.core.speech.at ? Date.parse(snapshot.core.speech.at) : NaN;
-    if (!Number.isFinite(at) || Date.now() - at > 5_000) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(snapshot.core.speech.text);
-    utterance.lang = "pt-BR";
-    utterance.rate = 1.12;
-    const voices = window.speechSynthesis.getVoices();
-    const brasil = voices.find(voice => voice.lang.toLowerCase() === "pt-br");
-    if (brasil) utterance.voice = brasil;
-    window.speechSynthesis.speak(utterance);
-  }, [snapshot, voiceEnabled]);
-
-  useEffect(() => {
-    return () => {
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
-    };
-  }, []);
-
-  const toggleBrowserVoice = () => {
-    if (!("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    setVoiceEnabled(value => !value);
-  };
-
   const powerView = derivePowerView(snapshot);
   const live = powerView !== "offline";
-  const expression = snapshot?.core.expressionId ?? "idle";
+  // V3 backend estimates speaking for 3-12 seconds. With Cartesia enabled,
+  // the real browser playback clock must override that estimated state.
+  const serverExpression = snapshot?.core.expressionId ?? "idle";
+  const usingCartesia = voiceEnabled && snapshot?.core.protocolVersion === 3;
+  const expression = usingCartesia
+    ? isPlaying ? "speaking" : serverExpression === "speaking" ? "idle" : serverExpression
+    : serverExpression;
+  const avatarVisual = useMemo(() => {
+    const current = snapshot?.core.character;
+    if (!current || !usingCartesia) return current;
+    const frame = isPlaying ? "speaking" :
+      current.frame === "speaking" ? "waiting_1" : current.frame;
+    return {
+      ...current,
+      frame,
+      src: `/characters/stand/${current.stance}/${frame}.png`,
+    };
+  }, [snapshot?.core.character, usingCartesia, isPlaying]);
   const labels = statusCopy(powerView);
 
   useEffect(() => {
@@ -327,6 +296,7 @@ export function ControlConsoleV2() {
   }, [tokenDraft]);
 
   const logoutPanel = useCallback(async () => {
+    stopPlayback();
     try {
       const response = await fetch(API_LOGOUT, {
         method: "POST", credentials: "same-origin",
@@ -342,11 +312,12 @@ export function ControlConsoleV2() {
     } catch (error) {
       setConnectionError(error instanceof Error ? error.message : "Falha ao sair.");
     }
-  }, []);
+  }, [stopPlayback]);
 
   const sendPower = useCallback(async () => {
     if (!authorized || pending || (powerView !== "running" && powerView !== "stopped")) return;
     const action: PowerAction = powerView === "running" ? "stop" : "start";
+    if (action === "stop") stopPlayback();
     setPending(action);
     setCommandError(null);
     try {
@@ -368,7 +339,7 @@ export function ControlConsoleV2() {
       setPending(null);
       setCommandError(error instanceof Error ? error.message : "Erro ao enviar comando.");
     }
-  }, [authorized, pending, powerView]);
+  }, [authorized, pending, powerView, stopPlayback]);
 
   const powerLabel = useMemo(() => {
     if (pending === "stop") return "ENCERRANDO";
@@ -420,7 +391,7 @@ export function ControlConsoleV2() {
           <div className="hero-orbit orbit-internal" aria-hidden="true" />
           <div className="orbit-ticks" aria-hidden="true" />
           <div className="figure-glow" aria-hidden="true" />
-          <Character expression={expression} connected={live} visual={snapshot?.core.character} />
+          <Character expression={expression} connected={live} visual={avatarVisual} />
           <div className="figure-floor" aria-hidden="true" />
           <div className="hero-label">
             <i className={live ? "is-live" : ""} />
@@ -499,24 +470,30 @@ export function ControlConsoleV2() {
         </aside>
 
         <section
-          className={`response-focus ${expression === "speaking" ? "response-focus--speaking" : ""}`}
+          className={`response-focus ${isPlaying ? "response-focus--speaking" : ""}`}
           aria-label="Última resposta do Alexios"
         >
           <div className="response-focus-header">
             <div className="response-focus-identity">
               <span className="response-focus-indicator" aria-hidden="true" />
               <span>RESPOSTA DO ALEXIOS</span>
+              {playbackState === "generating" && (
+                <span className="response-voice-status">PREPARANDO ÁUDIO</span>
+              )}
+              {playbackState === "playing" && (
+                <span className="response-voice-status">REPRODUZINDO</span>
+              )}
             </div>
             {snapshot?.core.protocolVersion === 3 && (
               <button
                 type="button"
                 className="speech-voice-toggle response-voice-button"
-                onClick={toggleBrowserVoice}
+                onClick={() => void toggleVoice()}
                 aria-pressed={voiceEnabled}
-                title="Ler novas respostas no navegador em português"
+                title="Ativar ou desativar o Cartesia Sonic 3.6, voz Rafael"
               >
                 <Volume2 size={15} aria-hidden="true" />
-                <span>{voiceEnabled ? "VOZ ATIVADA" : "ATIVAR VOZ"}</span>
+                <span>{voiceEnabled ? "RAFAEL ATIVO" : "ATIVAR RAFAEL"}</span>
               </button>
             )}
           </div>
@@ -531,6 +508,7 @@ export function ControlConsoleV2() {
                 "Aguardando a próxima resposta. O Alexios também pode escolher permanecer em silêncio."}
             </p>
           </div>
+          {voiceError && <p className="tts-feedback" role="status">{voiceError}</p>}
           <div className="response-focus-footer">
             <span>{snapshot?.core.speech.at
               ? `RESPONDIDO ÀS ${formatPoll(snapshot.core.speech.at)}`
