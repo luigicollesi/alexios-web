@@ -26,7 +26,9 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
   const lastSeenSpeech = useRef<number | null>(null);
   const lastSeenActivity = useRef<number | null>(null);
 
-  const stopPlayback = useCallback((updateUI = true) => {
+  // Imperative cancellation is deliberately independent of React state:
+  // snapshot effects only synchronize external audio resources.
+  const cancelAudioResources = useCallback(() => {
     const active = activeRef.current;
     activeRef.current = null;
     if (active) {
@@ -38,18 +40,22 @@ export function useAlexiosVoice(snapshot: AlexiosStatus | null, authorized: bool
       }
       active.sources.clear();
     }
-    if (updateUI) setPlaybackState("idle");
   }, []);
 
-  // Snapshot effects perform imperative cleanup first and notify React on
-  // the next microtask. This avoids synchronous setState inside an effect.
+  const stopPlayback = useCallback((updateUI = true) => {
+    cancelAudioResources();
+    if (updateUI) setPlaybackState("idle");
+  }, [cancelAudioResources]);
+
   const stopForSnapshot = useCallback(() => {
-    const hadAudio = activeRef.current !== null;
-    stopPlayback(false);
-    if (hadAudio) queueMicrotask(() => {
+    if (!activeRef.current) return;
+    cancelAudioResources();
+    // React state is updated outside the synchronous effect phase. Do not
+    // override a newer playback that might start during this same turn.
+    queueMicrotask(() => {
       if (!activeRef.current) setPlaybackState("idle");
     });
-  }, [stopPlayback]);
+  }, [cancelAudioResources]);
 
   const playSpeech = useCallback(async (sequence: number, activityEpoch: number) => {
     const context = contextRef.current;
