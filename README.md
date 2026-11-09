@@ -61,6 +61,30 @@ cp .env.example .env.local
 npm run dev
 ```
 
+### Visualização do redesign V3 no desenvolvimento
+
+O redesign está na branch `feat/console-response-focus` enquanto a PR #19
+não foi integrada à `main`. Para visualizar a interface nova:
+
+```bash
+git fetch origin
+git switch feat/console-response-focus
+git pull --ff-only origin feat/console-response-focus
+npm install
+npm run dev
+```
+
+Em `http://localhost:3000`, o Next.js em **modo development** usa o
+`ControlConsoleV2` redesenhado automaticamente, mesmo quando
+`ALEXIOS_WEB_V2_ENABLED` não está definido ou está em `false`.
+Para comparar manualmente com o dashboard antigo, adicionar
+`ALEXIOS_WEB_INTERFACE=legacy` ao `.env.local` e reiniciar o
+`npm run dev`. Remover essa variável para retornar ao redesign.
+
+Em **produção**, a seleção continua respeitando a configuração atual:
+`ALEXIOS_WEB_V2_ENABLED=true` habilita o painel V2/V3. Não habilitamos
+nenhum deploy de preview; a branch só é validada pelo GitHub Actions.
+
 Configure a URL do Neon em `.env.local`, preferencialmente em uma branch Neon de teste. O Agent Python pode usar `ALEXIOS_BRIDGE_URL=http://localhost:3000` durante o desenvolvimento e `https://alexios-web.vercel.app` em produção.
 
 Verificações: `npm run lint`, `npm run typecheck` e `npm run build`. O GitHub Actions executa esses comandos a cada pull request. As alterações ficam na branch de integração e não são mescladas automaticamente.
