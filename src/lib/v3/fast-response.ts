@@ -8,7 +8,8 @@ import {FRESH_FLOOR_TURNS_SQL, formatFreshFloorTurns, type FloorTurn}
   from "@/lib/v3/floor-turns";
 import {
   fastModelCandidates, fastCompletionBody, fastFailureCode,
-  fastShouldTryFallback, FastProviderHttpError,
+  fastShouldTryFallback, fastShouldUseQueuedFallback,
+  openRouterCompletionText, OpenRouterShapeError, FastProviderHttpError,
 } from "@/lib/v3/fast-provider";
 
 type ClaimedFastFloor = {
@@ -97,17 +98,8 @@ async function decideSpeech(floor: ClaimedFastFloor, recentTurns: string) {
         signal: AbortSignal.timeout(candidate.timeoutMs),
       });
       if (!response.ok) throw new FastProviderHttpError(response.status);
-      const data = await response.json() as {
-        choices?: Array<{
-          finish_reason?: string | null;
-          message?: {content?: unknown};
-        }>;
-      };
-      const first = data.choices?.[0];
-      if (first?.finish_reason === "length") {
-        throw new SyntaxError("Fast model JSON truncated by max_tokens.");
-      }
-      const decision = parseFastDecision(first?.message?.content);
+      const data: unknown = await response.json();
+      const decision = parseFastDecision(openRouterCompletionText(data));
       return {
         ...decision,
         modelMs: Date.now() - attemptedAt,
@@ -122,6 +114,10 @@ async function decideSpeech(floor: ClaimedFastFloor, recentTurns: string) {
         eventId: floor.event_id,
         model: candidate.model,
         reason,
+        // Structural metadata only: never log transcripts, reasoning or API keys.
+        ...(error instanceof OpenRouterShapeError
+          ? {finishReason: error.finishReason, contentShape: error.contentShape,
+             hasReasoning: error.hasReasoning} : {}),
         elapsedMs: Date.now() - attemptedAt,
         fallbackAvailable: index < candidates.length - 1 && fastShouldTryFallback(reason),
       });
@@ -213,7 +209,7 @@ async function finalize(
 
 async function failFast(
   eventId: string, token: string, error: string,
-  status: "revoked" | "silent" = "silent",
+  status: "revoked" | "silent" | "legacy" = "silent",
 ) {
   await query(
     `UPDATE public.alexios_v3_events SET
@@ -272,6 +268,15 @@ export async function processFastFloorV3(eventId: string): Promise<void> {
     console.warn("[Alexios V3 FAST] inferencia indisponivel", {
       eventId, reason, elapsedMs: Date.now() - started,
     });
-    if (current) await failFast(eventId, token, reason);
+    if (current) {
+      // A provider/network/format failure is NOT a voluntary decision to
+      // remain silent. Switch to the normal V3 queue's RESPOND path; the
+      // floor's run/epoch/deadline gates still prevent stale speech.
+      const useQueue = fastShouldUseQueuedFallback(reason);
+      await failFast(eventId, token, reason, useQueue ? "legacy" : "revoked");
+      console.warn("[Alexios V3 FAST] recuperação", {
+        eventId, reason, route: useQueue ? "queued_respond" : "revoked",
+      });
+    }
   }
 }
