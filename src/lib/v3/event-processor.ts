@@ -502,6 +502,11 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
       });
       return {handled: true, reason: floorReason};
     }
+    // Brief coalescing window: give a nearby floor priority before starting
+    // an OBSERVE model request. No additional queue delivery is needed.
+    if (job.event_type !== "floor_open") {
+      await new Promise<void>(resolve => setTimeout(resolve, 250));
+    }
     if (job.event_type !== "floor_open" &&
         await floorCoveringTurn(job.agent_id, job.run_id, sequence)) {
       if (!await finishCoveredObservation(job, token)) throw new V3DeferredError();
