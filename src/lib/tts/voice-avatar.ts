@@ -1,5 +1,5 @@
 import type { CharacterVisual, ExpressionId } from "../alexios";
-import {avatarPath, avatarForm} from "@/lib/v3/avatar-catalog";
+import {avatarPath, avatarForm} from "../v3/avatar-catalog.ts";
 
 /** Backend's 3-12s speaking estimate is suppressed when real browser TTS is enabled. */
 export function playbackAvatar(

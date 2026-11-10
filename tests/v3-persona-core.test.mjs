@@ -44,7 +44,7 @@ test("observation uses same core and memory without opening a response window", 
 test("core enumerates every PNG available in the repository", () => {
   assert.equal(V3_POSE_ASSETS.length, 52);
   const names = V3_POSE_ASSETS.map(x => x.path);
-  assert.equal(new Set(names).size, 8);
+  assert.equal(new Set(names).size, 52);
   const core = v3Messages(input)[0].content;
   for (const asset of V3_POSE_ASSETS) {
     assert.match(asset.path, /^\/characters\/(men|woman)\/[a-z-]+\/(listening|speaking|waiting_1|waiting_2)\.png$/);
