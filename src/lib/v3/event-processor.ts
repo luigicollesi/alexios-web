@@ -249,7 +249,8 @@ async function advance(
           AND s.power = 'running' AND s.desired_power = 'running'
           AND s.protocol_version = 3
           AND now() - $7::timestamptz < interval '60 seconds'
-          THEN $17::text ELSE s.speech_form END,
+          THEN CASE WHEN s.context_revision = $16::bigint
+             THEN $17::text ELSE s.character_form END ELSE s.speech_form END,
         speech_emotion = CASE WHEN $4::text = 'floor_open'
           AND NOT $8::boolean AND $12::text <> ''
           AND moved.active_run_id = $5::uuid

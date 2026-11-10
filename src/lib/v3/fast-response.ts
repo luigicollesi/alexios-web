@@ -188,7 +188,9 @@ async function finalize(
         speech_text = CASE WHEN $3::text <> ''
           THEN $3::text ELSE s.speech_text END,
         speech_form = CASE WHEN $3::text <> ''
-          THEN $10::text ELSE s.speech_form END,
+          THEN CASE WHEN s.context_revision = $9::bigint
+            THEN $10::text ELSE s.character_form END
+          ELSE s.speech_form END,
         speech_emotion = CASE WHEN $3::text <> ''
           THEN $11::text ELSE s.speech_emotion END,
         speech_seq = speech_seq + CASE WHEN $3::text <> '' THEN 1 ELSE 0 END,
