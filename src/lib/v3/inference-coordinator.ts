@@ -38,7 +38,10 @@ export async function acquireInference(
        started_at = now(),
        deadline_at = EXCLUDED.deadline_at,
        updated_at = now()
+     -- Vercel's longest event handler is 120s; never steal a live lease.
+     -- An abandoned execution can be reclaimed only after 150s.
      WHERE state.mode = 'idle'
+       OR state.deadline_at < now() - interval '35 seconds'
      RETURNING generation`,
     [agentId, runId, token, mode, eventId],
   );
