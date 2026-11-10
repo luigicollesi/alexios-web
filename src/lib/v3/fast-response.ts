@@ -1,6 +1,7 @@
 import "server-only";
 import {randomUUID} from "node:crypto";
 import {query, numeric} from "@/lib/agent-db";
+import {waitForInference, releaseInference, type InferenceLease} from "@/lib/v3/inference-coordinator";
 import {fastFloorEligible, parseFastDecision, type FastDecision} from "@/lib/v3/fast-protocol";
 import {v3Messages} from "@/lib/v3/persona-core";
 import {mergeSpeakerContext} from "@/lib/v3/speaker-context";
@@ -152,6 +153,7 @@ async function decideSpeech(floor: ClaimedFastFloor,
 
 async function finalize(
   floor: ClaimedFastFloor, token: string, decision: FastDecision, modelMs: number,
+  lease: InferenceLease,
 ): Promise<SpeechRow | null> {
   // Persist the AI-generated memory/pose even on voluntary silence. A floor
   // is consumed exactly once. The run/epoch/lease/FIM gate prevents stale
@@ -172,6 +174,9 @@ async function finalize(
         AND s.power = 'running' AND s.desired_power = 'running'
         AND s.last_poll_at > now() - interval '45 seconds'
         AND now() - e.received_at < interval '9 seconds'
+        AND EXISTS (SELECT 1 FROM public.alexios_v4_inference_state guard
+          WHERE guard.agent_id = e.agent_id AND guard.run_id = e.run_id
+            AND guard.lease_token = $12::uuid AND guard.generation = $13::bigint)
       FOR UPDATE OF st, s
     ), persisted AS (
       UPDATE public.alexios_sessions s SET
@@ -234,7 +239,7 @@ async function finalize(
     [floor.event_id, token, decision.shouldSpeak ? decision.speech : "",
      modelMs, decision.context, floor.context_text,
      decision.stance, decision.waitingVariant, numeric(floor.context_revision),
-     decision.form, decision.emotion],
+     decision.form, decision.emotion, lease.token, lease.generation],
   );
   return rows[0] || null;
 }
@@ -261,6 +266,7 @@ async function failFast(
 export async function processFastFloorV3(eventId: string): Promise<void> {
   const token = randomUUID();
   let current: ClaimedFastFloor | null = null;
+  let inferenceLease: InferenceLease | null = null;
   const started = Date.now();
   try {
     current = await claim(eventId, token);
@@ -277,13 +283,19 @@ export async function processFastFloorV3(eventId: string): Promise<void> {
       await failFast(eventId, token, "floor_invalid_before_model", "revoked");
       return;
     }
+    inferenceLease = await waitForInference(current.agent_id, current.run_id,
+      current.event_id, "respond", 4_000);
+    if (!inferenceLease) {
+      await failFast(eventId, token, "observe_lease_busy", "legacy");
+      return;
+    }
     const recent = await fetchTurns(current);
     if (!recent.freshTurns.trim()) {
       await failFast(eventId, token, "no_recent_turns");
       return;
     }
     const result = await decideSpeech(current, recent.freshTurns, recent.cues);
-    const saved = await finalize(current, token, result, result.modelMs);
+    const saved = await finalize(current, token, result, result.modelMs, inferenceLease);
     console.info("[Alexios V3 FAST] finalizado", {
       eventId,
       modelMs: result.modelMs,
@@ -310,5 +322,7 @@ export async function processFastFloorV3(eventId: string): Promise<void> {
         eventId, reason, route: useQueue ? "queued_respond" : "revoked",
       });
     }
+  } finally {
+    if (inferenceLease) await releaseInference(inferenceLease);
   }
 }
