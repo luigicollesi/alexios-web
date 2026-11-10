@@ -1,36 +1,17 @@
 /** Immutable V3 persona and on-disk avatar inventory. */
-import type {Stance, Frame} from "./protocol";
+import type {Stance, Frame, Form} from "./protocol";
+import {AVATAR_ASSETS, AVATAR_POSES, avatarPath, avatarForm, avatarStance, VOICE_EMOTIONS} from "./avatar-catalog.ts";
 import type {ResponseCues} from "./response-intent";
 import {MAX_CONTEXT_CHARS, TARGET_CONTEXT_CHARS} from "./context-limits.ts";
 import {contextForRun} from "./speaker-context.ts";
 export {MAX_CONTEXT_CHARS, TARGET_CONTEXT_CHARS} from "./context-limits.ts";
 
-export const V3_POSE_ASSETS: ReadonlyArray<{
-  stance: Stance;
-  frame: Frame;
-  path: string;
-  meaning: string;
-}> = [
-  {stance: "crossed-arm", frame: "listening", path: "/characters/stand/crossed-arm/listening.png",
-    meaning: "braços cruzados, atento a uma fala"},
-  {stance: "crossed-arm", frame: "speaking", path: "/characters/stand/crossed-arm/speaking.png",
-    meaning: "braços cruzados, resposta efetivamente publicada"},
-  {stance: "crossed-arm", frame: "waiting_1", path: "/characters/stand/crossed-arm/waiting_1.png",
-    meaning: "braços cruzados, espera, variante 1"},
-  {stance: "crossed-arm", frame: "waiting_2", path: "/characters/stand/crossed-arm/waiting_2.png",
-    meaning: "braços cruzados, espera, variante 2"},
-  {stance: "hand-in-pocket", frame: "listening", path: "/characters/stand/hand-in-pocket/listening.png",
-    meaning: "mão no bolso, atento a uma fala"},
-  {stance: "hand-in-pocket", frame: "speaking", path: "/characters/stand/hand-in-pocket/speaking.png",
-    meaning: "mão no bolso, resposta efetivamente publicada"},
-  {stance: "hand-in-pocket", frame: "waiting_1", path: "/characters/stand/hand-in-pocket/waiting_1.png",
-    meaning: "mão no bolso, espera, variante 1"},
-  {stance: "hand-in-pocket", frame: "waiting_2", path: "/characters/stand/hand-in-pocket/waiting_2.png",
-    meaning: "mão no bolso, espera, variante 2"},
-];
+// All real assets. Prompt only lists posture identifiers to save tokens.
+export const V3_POSE_ASSETS = AVATAR_ASSETS;
 
 export type CoreRequest = {
   context: string;
+  form?: Form;
   stance: Stance;
   waitingVariant: number;
   frame: Frame;
@@ -47,6 +28,8 @@ export type CoreRequest = {
  * 3. Only new speech since the previous response window / observation
  */
 export function v3Messages(input: CoreRequest): Array<{role: "system" | "user"; content: string}> {
+  const form = avatarForm(input.form);
+  const stance = avatarStance(form, input.stance);
   const core = [
     "Você é Alexios, assistente ambiental conversacional em português brasileiro.",
     "Use UMA memória por instância. IDs de locutores são provisórios, não nomes;",
@@ -58,15 +41,21 @@ export function v3Messages(input: CoreRequest): Array<{role: "system" | "user"; 
     "Infira apenas a intenção provável a partir de falas NOVAS + memória, sem inventar frases",
     "que não foram ditas. Se a incerteza importar, faça uma pergunta curta de esclarecimento.",
     "Não invente nomes, fatos, dispositivos, ações ou informações sobre pessoas.",
-    "CATÁLOGO REAL DAS 8 IMAGENS DISPONÍVEIS (não inventar nomes ou caminhos):",
-    ...V3_POSE_ASSETS.map(asset => asset.path + " — " + asset.meaning + "."),
-    "A IA escolhe somente stance (crossed-arm ou hand-in-pocket) e waitingVariant (1 ou 2).",
-    "crossed-arm: postura sóbria, observadora, concentrada ou analítica; ",
-    "hand-in-pocket: postura mais casual, aberta ou descontraída.",
-    "waiting_1 e waiting_2 são alternativas visuais; nenhuma exige humor específico.",
+    "FORMAS e posturas disponíveis (somente estes identificadores):",
+    "men: " + AVATAR_POSES.men.join(", ") + ".",
+    "woman: " + AVATAR_POSES.woman.join(", ") + ".",
+    "Forma atual: " + form + ". Prefira manter a forma; mude quando houver",
+    "pedido direto ou implicitamente claro. Sua escolha válida será aplicada pelo servidor.",
+    "Escolha LIVREMENTE a postura coerente com o contexto e sua reação emocional,",
+    "inclusive em OBSERVE, ouvindo em silêncio, sem precisar dar resposta verbal.",
+    "Concordância pode gerar thumbs-up, erro thumbs-down, insulto anger ou fury.",
+    "São exemplos, não gatilhos rígidos; não exija motivo excepcional para mudar.",
+    "Se a postura for incerta, use hand-in-pocket (men) ou elegant (woman).",
+    "Em RESPOND escolha emotion compatível com a mensagem e a postura, ou neutral;",
+    "emoções permitidas: " + VOICE_EMOTIONS.join(", ") + ".",
+    "Frames listening, speaking e waiting_1/2 são escolhidos pelo servidor.",
     "Enquanto sua voz toca (speaking), você NÃO escuta: o servidor descarta falas desse período.",
-    "NUNCA peça speaking ou listening como stance: o backend escolhe o frame operacional.",
-    "Imagem atualmente exibida: /characters/stand/" + input.stance + "/" + input.frame + ".png.",
+    "Imagem atual: " + avatarPath(form, stance, input.frame) + ".",
     "Variante atual de espera: waiting_" + (input.waitingVariant === 2 ? 2 : 1) + ".",
     "Altere a postura somente quando o assunto e a dinâmica justificarem, evitando oscilações.",
     "MEMÓRIA: o context variável é um resumo de fatos, tópicos, decisões e preferências.",
@@ -105,7 +94,7 @@ export function v3Messages(input: CoreRequest): Array<{role: "system" | "user"; 
       "Não interrompa conversa alheia, não repita comentários ou respostas antigas;",
       "se faltar relevância/confiança para contribuir, shouldSpeak=false e speech=''.",
       "Ao falar, escolha uma intervenção natural, breve e contextual (speech até 200 caracteres).",
-      'Schema obrigatório: {"context":"resumo","stance":"hand-in-pocket","waitingVariant":1,"shouldSpeak":false,"speech":""}.',
+      'Schema obrigatório: {"context":"resumo","form":"men","stance":"thumbs-up","waitingVariant":1,"emotion":"happy","shouldSpeak":false,"speech":""}.',
     );
     const pause = input.responseCues?.silenceMs;
     const voices = input.responseCues?.observedSpeakers;
@@ -121,7 +110,7 @@ export function v3Messages(input: CoreRequest): Array<{role: "system" | "user"; 
   } else {
     core.push(
       "JANELA DE RESPOSTA FECHADA: observe e consolide a memória, sem fala.",
-      'Schema obrigatório: {"context":"resumo","stance":"hand-in-pocket","waitingVariant":1}.',
+      'Schema obrigatório: {"context":"resumo","form":"men","stance":"thumbs-up","waitingVariant":1}.',
     );
   }
   return [

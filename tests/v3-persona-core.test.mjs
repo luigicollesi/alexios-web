@@ -9,6 +9,7 @@ import {join} from "node:path";
 
 const input = {
   context:"O usuário usa PostgreSQL no projeto; já perguntou quanto é 2+2.",
+  form:"men",
   stance:"crossed-arm",
   waitingVariant:2,
   frame:"listening",
@@ -26,7 +27,7 @@ test("every request gets fixed persona, selected pose, rolling memory and only f
   for (const frame of ["listening","speaking","waiting_1","waiting_2"]){
     assert.ok(messages[0].content.includes(frame));
   }
-  assert.ok(messages[0].content.includes("Imagem atualmente exibida: /characters/stand/crossed-arm/listening.png"));
+  assert.ok(messages[0].content.includes("Imagem atual: /characters/men/crossed-arm/listening.png"));
   assert.ok(messages[1].content.includes("PostgreSQL"));
   assert.ok(!messages[2].content.includes("2+2"));
   assert.match(messages[2].content,/Qual banco estamos usando/);
@@ -41,16 +42,14 @@ test("observation uses same core and memory without opening a response window", 
 });
 
 test("core enumerates every PNG available in the repository", () => {
-  assert.equal(V3_POSE_ASSETS.length, 8);
+  assert.equal(V3_POSE_ASSETS.length, 52);
   const names = V3_POSE_ASSETS.map(x => x.path);
-  assert.equal(new Set(names).size, 8);
+  assert.equal(new Set(names).size, 52);
   const core = v3Messages(input)[0].content;
   for (const asset of V3_POSE_ASSETS) {
-    assert.match(asset.path, /^\/characters\/stand\/(crossed-arm|hand-in-pocket)\/(listening|speaking|waiting_1|waiting_2)\.png$/);
-    assert.ok(core.includes(asset.path));
-    assert.ok(core.includes(asset.meaning));
-    assert.equal(characterImage(asset.stance, asset.frame), asset.path);
-    const physical = join(process.cwd(), "public", asset.path.slice(1).replace(/^characters\//, "characters/"));
+    assert.match(asset.path, /^\/characters\/(men|woman)\/[a-z-]+\/(listening|speaking|waiting_1|waiting_2)\.png$/);
+    assert.equal(characterImage(asset.stance, asset.frame, asset.form), asset.path);
+    const physical = join(process.cwd(), "public", asset.path.slice(1));
     assert.ok(statSync(physical).size > 8, asset.path);
     const header = readFileSync(physical).subarray(0,8);
     assert.deepEqual([...header], [137,80,78,71,13,10,26,10]);
@@ -97,6 +96,8 @@ test("core treats speaking as deaf and does not register unknown voices or solic
   const core = messages[0].content;
   assert.match(core, /NÃO escuta/);
   assert.match(core, /servidor descarta falas/);
+  assert.match(core, /inclusive em OBSERVE/);
+  assert.match(core, /mude quando houver/);
   assert.match(core, /speaker_unknown não identifica nem registra/);
   assert.match(core, /Não peça identificação/);
   assert.match(core, /2 s de fala contínua/);

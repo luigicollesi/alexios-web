@@ -1,6 +1,8 @@
 /** V3 wire contract shared by API routes and protocol tests. No DB dependencies. */
+import {avatarPath, type AvatarForm, type AvatarStance} from './avatar-catalog.ts';
 export type V3EventKind = "turn_end" | "turn_chunk" | "floor_open";
-export type Stance = "crossed-arm" | "hand-in-pocket";
+export type Stance = AvatarStance;
+export type Form = AvatarForm;
 export type Frame = "listening" | "speaking" | "waiting_1" | "waiting_2";
 
 export interface Identity {
@@ -91,8 +93,8 @@ export function parseV3Event(raw: unknown, type: V3EventKind): IncomingEvent {
   };
 }
 
-export function characterImage(stance: Stance, frame: Frame): string {
-  return "/characters/stand/" + stance + "/" + frame + ".png";
+export function characterImage(stance: Stance, frame: Frame, form: Form = "men"): string {
+  return avatarPath(form, stance, frame);
 }
 
 export function chooseCharacterFrame(

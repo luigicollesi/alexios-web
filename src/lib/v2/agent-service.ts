@@ -1,4 +1,5 @@
 import {statusConversationV3} from "@/lib/v3/status-service";
+import {avatarForm, avatarStance, avatarPath} from "@/lib/v3/avatar-catalog";
 import "server-only";
 import { createHmac } from "node:crypto";
 import { AgentError, leaseIsFresh, numeric, query, type AgentSession, type Word } from "@/lib/agent-db";
@@ -284,7 +285,8 @@ export async function statusV2(agentId: string) {
   const isConnected = connected(row);
   const v3 = row.protocol_version === 3;
   const conversation = v3 ? await statusConversationV3(agentId) : null;
-  const stance = row.character_stance === "crossed-arm" ? "crossed-arm" : "hand-in-pocket";
+  const form = avatarForm(row.character_form);
+  const stance = avatarStance(form, row.character_stance);
   const variant = row.character_waiting_variant === 2 ? 2 : 1;
   const waiting = variant === 2 ? "waiting_2" : "waiting_1";
   const speaking = row.character_speaking_until &&
@@ -309,13 +311,15 @@ export async function statusV2(agentId: string) {
       power: row.power,
       expressionId: expression,
       character: {
-        stance, frame, src: "/characters/stand/" + stance + "/" + frame + ".png",
+        form, stance, frame, src: avatarPath(form, stance, frame),
       },
       protocolVersion: v3 ? 3 : 2,
       speech: {
         seq: numeric(row.speech_seq),
         text: row.speech_text,
         at: row.speech_at,
+        form: avatarForm(row.speech_form),
+        emotion: row.speech_emotion,
       },
       lastAiAt: row.last_ai_at,
       lastError: row.last_error,

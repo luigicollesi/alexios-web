@@ -23,8 +23,10 @@ const complete = (fields) => JSON.stringify({
 test("fast model always returns memory and pose, including silence", () => {
   assert.deepEqual(parseFastDecision(complete({shouldSpeak:true,speech:"  Dois.  "})), {
     context:"O usuário utiliza PostgreSQL no projeto.",
+    form:"men",
     stance:"hand-in-pocket",
     waitingVariant:1,
+    emotion:"neutral",
     shouldSpeak:true,
     speech:"Dois.",
   });
@@ -44,7 +46,7 @@ test("malformed, missing, and cut-off model JSON cannot authorize speech", () =>
   assert.throws(() => parseFastDecision('fala sem JSON'));
   assert.throws(() => parseFastDecision('{"shouldSpeak":true,"speech":"oi"}'));
   assert.throws(() => parseFastDecision(complete({context:""})));
-  assert.throws(() => parseFastDecision(complete({stance:"invalid"})));
+  assert.equal(parseFastDecision(complete({stance:"invalid",shouldSpeak:false,speech:""})).stance, "hand-in-pocket");
   const noSpeech = parseFastDecision(complete({shouldSpeak:true,speech:"  "}));
   assert.equal(noSpeech.shouldSpeak,false);
   assert.equal(noSpeech.speech,"");
@@ -92,4 +94,18 @@ test("model output cannot cause unbounded rolling context", () => {
   }));
   assert.ok(decision.context.length <= 1200);
   assert.equal(decision.shouldSpeak, false);
+});
+
+
+test("Fast accepts female form, silent emotional stance and TTS emotion", () => {
+  const changed=parseFastDecision(complete({form:"woman",stance:"anger",emotion:"angry",
+    shouldSpeak:true,speech:"Não fale assim comigo."}), "men");
+  assert.equal(changed.form,"woman");
+  assert.equal(changed.stance,"anger");
+  assert.equal(changed.emotion,"angry");
+  const silent=parseFastDecision(complete({form:"woman",stance:"fury",
+    shouldSpeak:false,speech:"ignorado"}), "woman");
+  assert.equal(silent.form,"woman");
+  assert.equal(silent.stance,"fury");
+  assert.equal(silent.shouldSpeak,false);
 });

@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  CARTESIA_VOICE_ID, parseCartesiaKeys, CartesiaKeyRing, cartesiaOutOfCredit,
+  CARTESIA_VOICE_ID, CARTESIA_WOMAN_VOICE_ID, voiceForForm,
+  parseCartesiaKeys, CartesiaKeyRing, cartesiaOutOfCredit,
 } from "../src/lib/tts/key-manager.ts";
 import { PcmF32Chunker } from "../src/lib/tts/pcm.ts";
 import { currentSpeechForTts } from "../src/lib/tts/speech-gate.ts";
@@ -10,6 +11,9 @@ import { shouldInterruptForConfirmedTurn } from "../src/lib/tts/interruption-pol
 
 test("voice is pinned to Rafael and comma-separated keys are ordered and unique", () => {
   assert.equal(CARTESIA_VOICE_ID, "07b6f895-78b9-4921-8e10-8a21c99c2e8a");
+  assert.equal(CARTESIA_WOMAN_VOICE_ID, "9904416a-0831-44ea-b8ee-5f145e8f9bbf");
+  assert.equal(voiceForForm("men"), CARTESIA_VOICE_ID);
+  assert.equal(voiceForForm("woman"), CARTESIA_WOMAN_VOICE_ID);
   assert.deepEqual(parseCartesiaKeys(" sk_car_1, ,sk_car_2,sk_car_1 , sk_car_3 "), [
     "sk_car_1", "sk_car_2", "sk_car_3",
   ]);
@@ -132,9 +136,10 @@ test("newer input turn invalidates old audio; very old or empty replies are refu
 
 test("speaking pose tracks actual playback, not the server's estimated timer", () => {
   const original = {
+    form: "men",
     stance: "hand-in-pocket",
     frame: "speaking",
-    src: "/characters/stand/hand-in-pocket/speaking.png",
+    src: "/characters/men/hand-in-pocket/speaking.png",
   };
   const before = playbackAvatar("speaking", original, true, false);
   assert.equal(before.expression, "idle");
@@ -206,4 +211,14 @@ test("new confirmed user command can still interrupt audio", () => {
   assert.equal(shouldInterruptForConfirmedTurn(context, {
     sequence: 123, text: "", receivedAt: "2026-11-09T16:03:25.020-03:00",
   }), false);
+});
+
+
+test("female playback preserves the female form while toggling speaking", () => {
+  const female={form:"woman",stance:"elegant",frame:"waiting_1",
+    src:"/characters/woman/elegant/waiting_1.png"};
+  const speaking=playbackAvatar("idle",female,true,true);
+  assert.equal(speaking.visual.src,"/characters/woman/elegant/speaking.png");
+  const waiting=playbackAvatar("speaking",speaking.visual,true,false);
+  assert.equal(waiting.visual.src,"/characters/woman/elegant/waiting_1.png");
 });

@@ -1,7 +1,13 @@
 /** Local selection only. No credentials or transcript are ever logged. */
+import type {AvatarForm} from "@/lib/v3/avatar-catalog";
 export const CARTESIA_SAMPLE_RATE = 44_100;
 export const CARTESIA_BYTES_PER_SAMPLE = 4;
 export const CARTESIA_VOICE_ID = "07b6f895-78b9-4921-8e10-8a21c99c2e8a";
+export const CARTESIA_WOMAN_VOICE_ID = "9904416a-0831-44ea-b8ee-5f145e8f9bbf";
+
+export function voiceForForm(form: AvatarForm, male?: string, female?: string): string {
+  return form === "woman" ? (female || CARTESIA_WOMAN_VOICE_ID) : (male || CARTESIA_VOICE_ID);
+}
 
 const COOLDOWN_MS = 30 * 60 * 1000;
 

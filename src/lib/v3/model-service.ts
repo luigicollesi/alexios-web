@@ -7,12 +7,13 @@ import {v3Messages} from "@/lib/v3/persona-core";
 import {mergeSpeakerContext} from "@/lib/v3/speaker-context";
 import {repairDirectSilence, type ResponseCues} from "@/lib/v3/response-intent";
 import {openRouterCompletionText, OpenRouterShapeError} from "@/lib/v3/fast-provider";
-import type {Frame} from "@/lib/v3/protocol";
+import type {Frame, Form, Stance} from "@/lib/v3/protocol";
 
 type Task = "OBSERVE" | "RESPOND";
 type Input = {
   context: string;
-  stance: "crossed-arm" | "hand-in-pocket";
+  form: Form;
+  stance: Stance;
   waitingVariant: number;
   frame: Frame;
   mode: Task;
@@ -29,6 +30,7 @@ type Input = {
 function messages(input: Input) {
   return v3Messages({
     context: input.context,
+    form: input.form,
     stance: input.stance,
     waitingVariant: input.waitingVariant,
     frame: input.frame,
@@ -98,9 +100,9 @@ async function requestModel(input: Input): Promise<ObserveDecision | RespondDeci
         const data: unknown = await response.json();
         const raw = openRouterCompletionText(data);
         return input.mode === "OBSERVE"
-          ? speakerMemory(parseObserve(raw), input)
+          ? speakerMemory(parseObserve(raw, input.form), input)
           : speakerMemory(
-              repairDirectSilence(parseRespond(raw), input.recentTurns || "", input.responseCues),
+              repairDirectSilence(parseRespond(raw, input.form), input.recentTurns || "", input.responseCues),
               input,
             );
       } catch (error) {
