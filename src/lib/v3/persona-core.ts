@@ -58,7 +58,7 @@ export function v3Messages(input: CoreRequest): Array<{role: "system" | "user"; 
     "Emoções válidas: " + VOICE_EMOTIONS.join(", ") + ".",
     "O servidor controla listening, speaking e waiting_1/2; enquanto speaking você NÃO escuta:",
     "o servidor descarta falas durante sua voz.",
-    "Forma atual: " + form + "; imagem atual: " + avatarPath(form, stance, input.frame) + ".",
+    "Forma atual: " + form + ".",
     "Imagem atual: " + avatarPath(form, stance, input.frame) + ".",
     "Variante atual de espera: waiting_" + (input.waitingVariant === 2 ? 2 : 1) + ".",
     "MEMÓRIA: UMA por instância; context é resumo de fatos relevantes, não histórico de perguntas atuais.",
