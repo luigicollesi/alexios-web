@@ -2,6 +2,7 @@ import "server-only";
 import {randomUUID} from "node:crypto";
 import {query, numeric} from "@/lib/agent-db";
 import {observeV3, respondV3} from "@/lib/v3/model-service";
+import {acquireInference, releaseInference, floorCoveringTurn, type InferenceLease} from "@/lib/v3/inference-coordinator";
 import {FRESH_FLOOR_TURNS_SQL, formatFreshFloorTurns, responseCuesForFloor, type FloorTurn}
   from "@/lib/v3/floor-turns";
 import type {Stance, Frame, Form} from "@/lib/v3/protocol";
@@ -134,6 +135,28 @@ async function finalizeFastFloor(
  * was active at intake. Do not call OBSERVE/RESPOND, update avatar or memory.
  * Advance the durable cursor so the Python event sequence never jams.
  */
+/** A forthcoming RESPOND will consume this transcript: advance the delivery
+ * cursor without calling OBSERVE and keep the transcript readable by the floor. */
+async function finishCoveredObservation(job: Claimed, token: string): Promise<boolean> {
+  const rows = await query<{event_id: string}>(
+    `WITH moved AS (
+       UPDATE public.alexios_v3_streams SET
+         last_processed_sequence = $3::bigint, processing_token = NULL,
+         processing_started_at = NULL, updated_at = now()
+       WHERE agent_id = $1::uuid AND processing_token = $2::uuid
+         AND last_processed_sequence + 1 = $3::bigint
+       RETURNING agent_id
+     )
+     UPDATE public.alexios_v3_events e SET
+       status = 'processed', processed_at = now(),
+       last_error = 'covered_by_respond'
+     WHERE e.event_id = $4::uuid AND e.agent_id IN (SELECT agent_id FROM moved)
+     RETURNING e.event_id`,
+    [job.agent_id, token, numeric(job.sequence), job.event_id],
+  );
+  return Boolean(rows[0]);
+}
+
 async function finishIgnoredPlaybackEvent(job: Claimed, token: string): Promise<boolean> {
   const rows = await query<{event_id: string}>(
     `WITH moved AS (
@@ -173,6 +196,7 @@ async function advance(
              speech?: string; emotion?: VoiceEmotion; shouldSpeak?: boolean; degraded?: boolean} | null,
   obsolete: boolean,
   obsoleteReason: string | null = null,
+  lease: InferenceLease | null = null,
 ): Promise<{advanced: boolean; speechPublished: boolean; floorEligible: boolean}> {
   const response = decision && decision.shouldSpeak ? (decision.speech || "") : "";
   const rows = await query<{
@@ -329,6 +353,11 @@ async function advance(
         version = version + 1, updated_at = now()
       FROM moved
       WHERE s.agent_id = moved.agent_id AND s.protocol_version = 3
+        AND ($19::uuid IS NULL OR EXISTS (
+          SELECT 1 FROM public.alexios_v4_inference_state guard
+          WHERE guard.agent_id = s.agent_id AND guard.run_id = $5::uuid
+            AND guard.lease_token = $19::uuid
+            AND guard.generation = $20::bigint))
       RETURNING s.agent_id,
         (
           moved.active_run_id = $5::uuid
@@ -379,7 +408,7 @@ async function advance(
      decision?.waitingVariant ?? data.character_waiting_variant,
      response, data.event_id, decision?.degraded === true, obsoleteReason,
      numeric(data.context_revision), decision?.form ?? data.character_form,
-     decision?.emotion ?? "neutral"],
+     decision?.emotion ?? "neutral", lease?.token ?? null, lease?.generation ?? null],
   );
   return {
     advanced: Boolean(rows[0]),
@@ -473,6 +502,11 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
       });
       return {handled: true, reason: floorReason};
     }
+    if (job.event_type !== "floor_open" &&
+        await floorCoveringTurn(job.agent_id, job.run_id, sequence)) {
+      if (!await finishCoveredObservation(job, token)) throw new V3DeferredError();
+      return {handled: true, reason: "covered_by_respond"};
+    }
     const current = {
       context: job.context_text, form: job.character_form, stance: job.character_stance,
       waitingVariant: job.character_waiting_variant,
@@ -482,6 +516,10 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
       ? await recentTurnsForFloor(job) : null;
     // A floor with no new speech is consumed silently, without another
     // provider request or any opportunity to replay old questions.
+    const lease = await acquireInference(job.agent_id, job.run_id, job.event_id,
+      job.event_type === "floor_open" ? "respond" : "observe");
+    if (!lease) throw new V3DeferredError();
+    try {
     const decision = job.event_type === "floor_open"
       ? freshTurns?.text
         ? await respondV3({
@@ -495,7 +533,7 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
           continuousSpeechMs: job.continuous_speech_ms === null ? 0
             : numeric(job.continuous_speech_ms),
         });
-    const outcome = await advance(job, token, decision, false);
+    const outcome = await advance(job, token, decision, false, null, lease);
     if (!outcome.advanced) throw new V3DeferredError();
     console.info("[Alexios V3] evento processado", {
       eventId, sequence, type: job.event_type,
@@ -512,6 +550,9 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
       // Report the committed result, not just the LLM's intention.
     });
     return {handled: true};
+    } finally {
+      await releaseInference(lease);
+    }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     if (error instanceof V3DeferredError) {
