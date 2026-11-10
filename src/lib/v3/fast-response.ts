@@ -5,7 +5,7 @@ import {fastFloorEligible, parseFastDecision, type FastDecision} from "@/lib/v3/
 import {v3Messages} from "@/lib/v3/persona-core";
 import {mergeSpeakerContext} from "@/lib/v3/speaker-context";
 import {repairDirectSilence, type ResponseCues} from "@/lib/v3/response-intent";
-import type {Stance, Frame} from "@/lib/v3/protocol";
+import type {Stance, Frame, Form} from "@/lib/v3/protocol";
 import {FRESH_FLOOR_TURNS_SQL, formatFreshFloorTurns, responseCuesForFloor, type FloorTurn}
   from "@/lib/v3/floor-turns";
 import {
@@ -24,6 +24,7 @@ type ClaimedFastFloor = {
   silence_ms: string | number | null;
   context_text: string;
   context_revision: string | number;
+  character_form: Form;
   character_stance: Stance;
   character_waiting_variant: number;
   character_frame: Frame;
@@ -46,7 +47,7 @@ async function claim(eventId: string, token: string): Promise<ClaimedFastFloor |
     )
     SELECT e.event_id, e.agent_id, e.run_id, e.sequence, e.activity_epoch,
       e.received_at, e.payload->>'silenceMs' AS silence_ms,
-      s.context_text, s.context_revision, s.character_stance,
+      s.context_text, s.context_revision, s.character_form, s.character_stance,
       s.character_waiting_variant, s.character_frame, st.active_run_id,
       st.activity_epoch AS latest_activity, s.power, s.desired_power,
       (s.last_poll_at > now() - interval '45 seconds'
@@ -83,6 +84,7 @@ async function decideSpeech(floor: ClaimedFastFloor,
   });
   const messages = v3Messages({
     context: floor.context_text,
+    form: floor.character_form,
     stance: floor.character_stance,
     waitingVariant: floor.character_waiting_variant,
     frame: floor.character_frame,
@@ -115,7 +117,7 @@ async function decideSpeech(floor: ClaimedFastFloor,
       // allowed only for explicit address or a solitary observed voice making
       // an ambiguous connection check after a real pause.
       const suggested = repairDirectSilence(
-        parseFastDecision(openRouterCompletionText(data)), recentTurns, responseCues,
+        parseFastDecision(openRouterCompletionText(data), floor.character_form), recentTurns, responseCues,
       );
       const decision = {...suggested, context: mergeSpeakerContext({
         previous: floor.context_text, generated: suggested.context,
@@ -177,12 +179,18 @@ async function finalize(
           THEN $5::text ELSE s.context_text END,
         context_revision = s.context_revision +
           CASE WHEN s.context_revision = $9::bigint THEN 1 ELSE 0 END,
+        character_form = CASE WHEN s.context_revision = $9::bigint
+          THEN $10::text ELSE s.character_form END,
         character_stance = CASE WHEN s.context_revision = $9::bigint
           THEN $7::text ELSE s.character_stance END,
         character_waiting_variant = CASE WHEN s.context_revision = $9::bigint
           THEN $8::smallint ELSE s.character_waiting_variant END,
         speech_text = CASE WHEN $3::text <> ''
           THEN $3::text ELSE s.speech_text END,
+        speech_form = CASE WHEN $3::text <> ''
+          THEN $10::text ELSE s.speech_form END,
+        speech_emotion = CASE WHEN $3::text <> ''
+          THEN $11::text ELSE s.speech_emotion END,
         speech_seq = speech_seq + CASE WHEN $3::text <> '' THEN 1 ELSE 0 END,
         speech_at = CASE WHEN $3::text <> '' THEN now() ELSE s.speech_at END,
         expression_id = CASE WHEN $3::text <> ''
@@ -223,7 +231,8 @@ async function finalize(
     FROM finished`,
     [floor.event_id, token, decision.shouldSpeak ? decision.speech : "",
      modelMs, decision.context, floor.context_text,
-     decision.stance, decision.waitingVariant, numeric(floor.context_revision)],
+     decision.stance, decision.waitingVariant, numeric(floor.context_revision),
+     decision.form, decision.emotion],
   );
   return rows[0] || null;
 }
