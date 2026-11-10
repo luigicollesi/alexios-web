@@ -103,3 +103,18 @@ test("core treats speaking as deaf and does not register unknown voices or solic
   assert.match(core, /2 s de fala contínua/);
   assert.doesNotMatch(core, /Como você prefere que eu te chame/);
 });
+
+test("compact V4 persona explains each stance and keeps expressive listening", () => {
+  const observe = v3Messages({...input, responseWindow:false})[0].content;
+  for (const stance of [
+    "hand-in-pocket", "elegant", "crossed-arm", "thumbs-up",
+    "thumbs-down", "anger", "fury", "double-biceps",
+  ]) assert.match(observe, new RegExp(stance));
+  assert.ok(observe.includes("versão feminina/trans"));
+  assert.match(observe, /amigo na conversa/);
+  assert.match(observe, /Posturas de repouso não são preferência/);
+  assert.match(observe, /Use posturas livremente, inclusive em OBSERVE e em silêncio/);
+  assert.match(observe, /Você ainda não é digno de ver essa pose/);
+  assert.match(observe, /Não mencione arquivos ou configuração/);
+  assert.ok(observe.length < 4300, "core should remain compact");
+});
