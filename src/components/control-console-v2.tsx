@@ -7,6 +7,7 @@ import {
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import { useAlexiosVoice } from "@/hooks/use-alexios-voice";
 import { playbackAvatar } from "@/lib/tts/voice-avatar";
+import {avatarPath, avatarForm, DEFAULT_STANCE} from "@/lib/v3/avatar-catalog";
 import {
   derivePowerView, EXPRESSION_LABELS, normalizeStatus,
   type AlexiosStatus, type ExpressionId, type PowerAction, type CharacterVisual,
@@ -108,11 +109,12 @@ function statusCopy(view: ReturnType<typeof derivePowerView>) {
 function Character({
   expression, connected, visual,
 }: { expression: ExpressionId; connected: boolean; visual?: CharacterVisual }) {
-  const source = visual?.src ?? "/characters/stand/hand-in-pocket/waiting_1.png";
-  const fallback = "/characters/stand/hand-in-pocket/waiting_1.png";
+  const form = avatarForm(visual?.form);
+  const fallback = avatarPath(form, DEFAULT_STANCE[form], "waiting_1");
+  const source = visual?.src ?? fallback;
   return (
     <div className={"character-slot " + (connected ? "is-connected" : "is-disconnected")}>
-      {/* V3 images: two stances and four frames, with an existing PNG fallback. */}
+      {/* V3 images: forms, contextual stances and four operational frames. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         key={source}

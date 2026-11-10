@@ -1,9 +1,13 @@
+import {avatarForm, avatarStance, avatarPath, avatarEmotion, type AvatarForm, type AvatarStance, type VoiceEmotion} from "@/lib/v3/avatar-catalog";
+
 export type CorePower = "running" | "stopped" | "starting" | "stopping" | "unknown";
 export type ExpressionId = "idle" | "listening" | "thinking" | "speaking";
 export type PowerAction = "start" | "stop";
-export type CharacterStance = "crossed-arm" | "hand-in-pocket";
+export type CharacterStance = AvatarStance;
+export type CharacterForm = AvatarForm;
 export type CharacterFrame = "listening" | "speaking" | "waiting_1" | "waiting_2";
 export interface CharacterVisual {
+  form: CharacterForm;
   stance: CharacterStance;
   frame: CharacterFrame;
   src: string;
@@ -45,7 +49,7 @@ export interface AlexiosStatus {
   core: {
     power: CorePower;
     expressionId: ExpressionId;
-    speech: { seq: number; text: string; at: string | null };
+    speech: { seq: number; text: string; at: string | null; form: AvatarForm; emotion: VoiceEmotion };
     lastAiAt: string | null;
     lastError: string | null;
     character: CharacterVisual;
@@ -126,8 +130,8 @@ export function normalizeStatus(payload: unknown, now = Date.now()): AlexiosStat
         receivedAt: typeof rawFloor.receivedAt === "string" ? rawFloor.receivedAt : null,
       } : null,
     } : null;
-  const stance: CharacterStance =
-    character.stance === "crossed-arm" ? "crossed-arm" : "hand-in-pocket";
+  const form = avatarForm(character.form);
+  const stance: CharacterStance = avatarStance(form, character.stance);
   const frame: CharacterFrame =
     character.frame === "listening" || character.frame === "speaking" ||
     character.frame === "waiting_2" ? character.frame : "waiting_1";
@@ -147,12 +151,14 @@ export function normalizeStatus(payload: unknown, now = Date.now()): AlexiosStat
         seq,
         text: typeof speech.text === "string" ? speech.text.slice(0, 600) : "",
         at: typeof speech.at === "string" ? speech.at : null,
+        form: avatarForm(speech.form),
+        emotion: avatarEmotion(speech.emotion),
       },
       lastAiAt: typeof core.lastAiAt === "string" ? core.lastAiAt : null,
       lastError: typeof core.lastError === "string" ? core.lastError.slice(0, 180) : null,
       character: {
-        stance, frame,
-        src: "/characters/stand/" + stance + "/" + frame + ".png",
+        form, stance, frame,
+        src: avatarPath(form, stance, frame),
       },
       protocolVersion: core.protocolVersion === 3 ? 3 : 2,
     },
