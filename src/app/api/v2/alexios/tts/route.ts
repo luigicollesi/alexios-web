@@ -39,7 +39,10 @@ export async function POST(request: Request) {
       status, Number(sequence), Number(activityEpoch),
     );
     if (!text) throw new AgentError(409, "Resposta substituída, antiga ou indisponível.");
-    const stream = await cartesiaSpeechStream(text, request.signal);
+    const stream = await cartesiaSpeechStream(text, request.signal, {
+      form: status.core.speech.form,
+      emotion: status.core.speech.emotion,
+    });
     return new Response(stream, {
       status: 200,
       headers: {
