@@ -78,7 +78,7 @@ test("Fast and unknown voices do not register a name without a >=2s verified tur
     freshSpeech:"[6c2dc782/speaker_unknown]: Qual o próximo passo?",
     responseWindow:true,
   });
-  assert.match(core[0].content,/speaker_unknown não identifica nem registra/);
+  assert.match(core[0].content,/speaker_unknown não identifica pessoa/);
   assert.doesNotMatch(core[1].content,/speaker_03 = Luigi/);
   const unknown=mergeSpeakerContext({
     previous:fromFloor,generated:"Trabalho em equipe.",runId:runA,

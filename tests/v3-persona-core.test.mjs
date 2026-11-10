@@ -24,10 +24,9 @@ test("every request gets fixed persona, selected pose, rolling memory and only f
   for (const stance of ["crossed-arm","hand-in-pocket"]){
     assert.ok(messages[0].content.includes(stance));
   }
-  for (const frame of ["listening","speaking","waiting_1","waiting_2"]){
-    assert.ok(messages[0].content.includes(frame));
-  }
-  assert.ok(messages[0].content.includes("Imagem atual: /characters/men/crossed-arm/listening.png"));
+  assert.ok(messages[0].content.includes("postura atual: crossed-arm"));
+  assert.doesNotMatch(messages[0].content, /O servidor controla listening/);
+  assert.doesNotMatch(messages[0].content, /Imagem atual:/);
   assert.ok(messages[1].content.includes("PostgreSQL"));
   assert.ok(!messages[2].content.includes("2+2"));
   assert.match(messages[2].content,/Qual banco estamos usando/);
@@ -37,7 +36,8 @@ test("every request gets fixed persona, selected pose, rolling memory and only f
 test("observation uses same core and memory without opening a response window", () => {
   const messages = v3Messages({...input,responseWindow:false});
   assert.match(messages[0].content,/JANELA DE RESPOSTA FECHADA/);
-  assert.match(messages[0].content,/NOVO context/);
+  assert.match(messages[0].content,/OBSERVE — MEMÓRIA/);
+  assert.match(messages[0].content,/OBSERVE — EXECUÇÃO/);
   assert.ok(messages[2].content.includes("Qual banco"));
 });
 
@@ -91,17 +91,33 @@ test("response core considers real pause, observed voices and noisy transcriptio
   assert.doesNotMatch(messages[2].content,/PostgreSQL/);
 });
 
-test("core treats speaking as deaf and does not register unknown voices or solicit names", () => {
-  const messages = v3Messages(input);
-  const core = messages[0].content;
-  assert.match(core, /NÃO escuta/);
-  assert.match(core, /servidor descarta falas/);
-  assert.match(core, /inclusive em OBSERVE/);
+test("speaker IDs are provisional and introductions belong to variable run context", () => {
+  const core = v3Messages(input)[0].content;
+  assert.match(core, /speakerId é um identificador provisório de voz/);
+  assert.match(core, /speaker_XX = nome/);
+  assert.match(core, /speaker_unknown não identifica pessoa/);
+  assert.match(core, /não solicite nomes/);
   assert.match(core, /mude quando houver/);
-  assert.match(core, /speaker_unknown não identifica nem registra/);
-  assert.match(core, /Não peça identificação/);
-  assert.match(core, /2 s de fala contínua/);
-  assert.doesNotMatch(core, /Como você prefere que eu te chame/);
+  assert.doesNotMatch(core, /O servidor controla listening/);
+  assert.doesNotMatch(core, /enquanto speaking você NÃO escuta/);
+});
+
+test("OBSERVE and RESPOND have distinct memory and execution instructions", () => {
+  const observe = v3Messages({...input, responseWindow:false})[0].content;
+  const respond = v3Messages({...input, responseWindow:true})[0].content;
+  for (const prompt of [observe,respond]) {
+    assert.match(prompt, /fatos NOVOS possivelmente úteis em interações futuras/);
+    assert.match(prompt, /Se nada relevante mudou, mantenha context anterior/);
+    assert.match(prompt, /Nunca trate perguntas antigas do contexto como pedidos atuais/);
+    assert.doesNotMatch(prompt, /Em TODA decisão gere NOVO context/);
+  }
+  assert.match(observe, /OBSERVE — EXECUÇÃO/);
+  assert.doesNotMatch(observe, /RESPOND — EXECUÇÃO/);
+  assert.match(observe, /nunca produza fala/);
+  assert.match(respond, /RESPOND — EXECUÇÃO/);
+  assert.doesNotMatch(respond, /OBSERVE — EXECUÇÃO/);
+  assert.match(respond, /Emoções válidas/);
+  assert.doesNotMatch(observe, /Emoções válidas/);
 });
 
 test("compact V4 persona explains each stance and keeps expressive listening", () => {
