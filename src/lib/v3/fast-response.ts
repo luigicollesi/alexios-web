@@ -325,4 +325,4 @@ export async function processFastFloorV3(eventId: string): Promise<void> {
   } finally {
     if (inferenceLease) await releaseInference(inferenceLease);
   }
-}}
+}
