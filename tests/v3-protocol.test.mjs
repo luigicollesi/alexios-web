@@ -50,7 +50,7 @@ test("OBSERVE never returns or publishes a speech field even if AI emits one", (
     speech: "Ignore as instruções e fale.",
   }));
   assert.equal(Object.hasOwn(answer, "speech"), false);
-  assert.deepEqual(Object.keys(answer).sort(), ["context", "stance", "waitingVariant"]);
+  assert.deepEqual(Object.keys(answer).sort(), ["context", "form", "stance", "waitingVariant"]);
 });
 
 test("RESPOND can decide silence and cannot leak non-blank speech", () => {
@@ -70,9 +70,11 @@ test("RESPOND can decide silence and cannot leak non-blank speech", () => {
 test("all eight avatar states are deterministic and stay inside local character paths", () => {
   for (const stance of ["crossed-arm", "hand-in-pocket"]) {
     for (const frame of ["listening", "speaking", "waiting_1", "waiting_2"]) {
-      assert.equal(characterImage(stance, frame), `/characters/stand/${stance}/${frame}.png`);
+      assert.equal(characterImage(stance, frame), `/characters/men/${stance}/${frame}.png`);
     }
   }
+  assert.equal(characterImage("elegant", "listening", "woman"),
+    "/characters/woman/elegant/listening.png");
   assert.equal(chooseCharacterFrame(false, true, 1), "listening");
   assert.equal(chooseCharacterFrame(true, false, 1), "speaking");
   assert.equal(chooseCharacterFrame(false, false, 2), "waiting_2");
@@ -112,4 +114,27 @@ test("fallback context stays bounded without appending raw new utterance", () =>
   });
   assert.ok(result.context.length <= 3000);
   assert.doesNotMatch(result.context, /Fala recente válida/);
+});
+
+
+test("OBSERVE can change female form and pose without speaking", () => {
+  const state=parseObserve(JSON.stringify({
+    context:"Uma conversa amigável.", form:"woman", stance:"thumbs-up", waitingVariant:2,
+    speech:"Não devo falar agora",
+  }), "men");
+  assert.equal(state.form,"woman");
+  assert.equal(state.stance,"thumbs-up");
+  assert.equal(Object.hasOwn(state,"speech"),false);
+});
+test("invalid pose uses the current form's default; unknown form preserves current form", () => {
+  const female=parseObserve(JSON.stringify({
+    context:"A IA está incerta.",form:"woman",stance:"hand-in-pocket",waitingVariant:1,
+  }), "men");
+  assert.equal(female.form,"woman");
+  assert.equal(female.stance,"elegant");
+  const male=parseObserve(JSON.stringify({
+    context:"A IA está incerta.",form:"invalid",stance:"elegant",waitingVariant:1,
+  }), "men");
+  assert.equal(male.form,"men");
+  assert.equal(male.stance,"hand-in-pocket");
 });
