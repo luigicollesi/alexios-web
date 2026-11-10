@@ -6,6 +6,8 @@ export type AgentPose = "idle" | "listening" | "thinking" | "speaking";
 export type Word = { text: string; startMs: number; endMs: number };
 export type Capture = { id: string; index: number; lastEndMs: number; tail: { text: string; endMs: number }[] };
 
+import type {AvatarForm, AvatarStance, VoiceEmotion} from "@/lib/v3/avatar-catalog";
+
 export interface AgentSession {
   session_id: string;
   instance_id: string | null;
@@ -29,7 +31,10 @@ export interface AgentSession {
   last_ai_at: string | null;
   last_error: string | null;
   protocol_version: number;
-  character_stance: "crossed-arm" | "hand-in-pocket";
+  character_form: AvatarForm;
+  character_stance: AvatarStance;
+  speech_form: AvatarForm;
+  speech_emotion: VoiceEmotion;
   character_waiting_variant: number;
   character_frame: "listening" | "speaking" | "waiting_1" | "waiting_2";
   character_speaking_until: string | null;
