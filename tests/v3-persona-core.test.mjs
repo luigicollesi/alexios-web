@@ -110,7 +110,7 @@ test("compact V4 persona explains each stance and keeps expressive listening", (
     "hand-in-pocket", "elegant", "crossed-arm", "thumbs-up",
     "thumbs-down", "anger", "fury", "double-biceps",
   ]) assert.match(observe, new RegExp(stance));
-  assert.match(observe, /versão feminina\\/trans/);
+  assert.ok(observe.includes("versão feminina/trans"));
   assert.match(observe, /amigo na conversa/);
   assert.match(observe, /Posturas de repouso não são preferência/);
   assert.match(observe, /Use posturas livremente, inclusive em OBSERVE e em silêncio/);
