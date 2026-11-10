@@ -4,7 +4,8 @@ import {query, numeric} from "@/lib/agent-db";
 import {observeV3, respondV3} from "@/lib/v3/model-service";
 import {FRESH_FLOOR_TURNS_SQL, formatFreshFloorTurns, responseCuesForFloor, type FloorTurn}
   from "@/lib/v3/floor-turns";
-import type {Stance, Frame} from "@/lib/v3/protocol";
+import type {Stance, Frame, Form} from "@/lib/v3/protocol";
+import type {VoiceEmotion} from "@/lib/v3/avatar-catalog";
 import {floorRejectReason} from "@/lib/v3/floor-policy";
 import {FAST_WORKER_TIMEOUT_MS, fastFloorTerminal, type FastResponseStatus} from "@/lib/v3/fast-protocol";
 
@@ -24,6 +25,7 @@ type Claimed = {
   silence_ms: string | number | null;
   context_text: string;
   context_revision: string | number;
+  character_form: Form;
   character_stance: Stance;
   character_waiting_variant: number;
   character_frame: Frame;
@@ -69,7 +71,7 @@ async function claim(eventId: string, token: string): Promise<Claimed | null> {
         GREATEST(0, (e.payload->>'endedAtMs')::bigint -
           (e.payload->>'startedAtMs')::bigint) ELSE NULL END AS continuous_speech_ms,
       e.payload->>'silenceMs' AS silence_ms,
-      s.context_text, s.context_revision, s.character_stance, s.character_waiting_variant, s.character_frame,
+      s.context_text, s.context_revision, s.character_form, s.character_stance, s.character_waiting_variant, s.character_frame,
       st.latest_activity, st.active_run_id, s.power, s.desired_power
     FROM marked e JOIN reserved st ON e.agent_id = st.agent_id
       JOIN public.alexios_sessions s ON s.agent_id = e.agent_id`,
@@ -167,8 +169,8 @@ async function expireStuckFastFloor(eventId: string): Promise<void> {
 
 async function advance(
   data: Claimed, token: string,
-  decision: {context: string; stance: Stance; waitingVariant: number;
-             speech?: string; shouldSpeak?: boolean; degraded?: boolean} | null,
+  decision: {context: string; form: Form; stance: Stance; waitingVariant: number;
+             speech?: string; emotion?: VoiceEmotion; shouldSpeak?: boolean; degraded?: boolean} | null,
   obsolete: boolean,
   obsoleteReason: string | null = null,
 ): Promise<{advanced: boolean; speechPublished: boolean; floorEligible: boolean}> {
@@ -208,6 +210,14 @@ async function advance(
                  OR now() - $7::timestamptz >= interval '60 seconds')
             THEN s.context_revision
           ELSE s.context_revision + 1 END,
+        character_form = CASE
+          WHEN $8::boolean OR $14::boolean OR moved.active_run_id <> $5::uuid OR s.context_revision <> $16::bigint
+            OR ($4::text = 'floor_open'
+              AND (moved.active_run_id <> $5::uuid
+                   OR moved.activity_epoch <> $6::bigint
+                   OR s.power <> 'running' OR s.desired_power <> 'running'
+                   OR now() - $7::timestamptz >= interval '60 seconds'))
+          THEN s.character_form ELSE $17::text END,
         character_stance = CASE
           WHEN $8::boolean OR $14::boolean OR moved.active_run_id <> $5::uuid OR s.context_revision <> $16::bigint
             OR ($4::text = 'floor_open'
@@ -232,6 +242,22 @@ async function advance(
           AND s.protocol_version = 3
           AND now() - $7::timestamptz < interval '60 seconds'
           THEN $12::text ELSE s.speech_text END,
+        speech_form = CASE WHEN $4::text = 'floor_open'
+          AND NOT $8::boolean AND $12::text <> ''
+          AND moved.active_run_id = $5::uuid
+          AND moved.activity_epoch = $6::bigint
+          AND s.power = 'running' AND s.desired_power = 'running'
+          AND s.protocol_version = 3
+          AND now() - $7::timestamptz < interval '60 seconds'
+          THEN $17::text ELSE s.speech_form END,
+        speech_emotion = CASE WHEN $4::text = 'floor_open'
+          AND NOT $8::boolean AND $12::text <> ''
+          AND moved.active_run_id = $5::uuid
+          AND moved.activity_epoch = $6::bigint
+          AND s.power = 'running' AND s.desired_power = 'running'
+          AND s.protocol_version = 3
+          AND now() - $7::timestamptz < interval '60 seconds'
+          THEN $18::text ELSE s.speech_emotion END,
         speech_seq = speech_seq + CASE WHEN $4::text = 'floor_open'
           AND NOT $8::boolean AND $12::text <> ''
           AND moved.active_run_id = $5::uuid
@@ -351,7 +377,8 @@ async function advance(
      decision?.stance ?? data.character_stance,
      decision?.waitingVariant ?? data.character_waiting_variant,
      response, data.event_id, decision?.degraded === true, obsoleteReason,
-     numeric(data.context_revision)],
+     numeric(data.context_revision), decision?.form ?? data.character_form,
+     decision?.emotion ?? "neutral"],
   );
   return {
     advanced: Boolean(rows[0]),
@@ -446,7 +473,7 @@ export async function processEventV3(eventId: string): Promise<{handled: boolean
       return {handled: true, reason: floorReason};
     }
     const current = {
-      context: job.context_text, stance: job.character_stance,
+      context: job.context_text, form: job.character_form, stance: job.character_stance,
       waitingVariant: job.character_waiting_variant,
       frame: job.character_frame, runId: job.run_id,
     };
