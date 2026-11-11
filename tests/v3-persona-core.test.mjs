@@ -128,9 +128,23 @@ test("compact V4 persona explains each stance and keeps expressive listening", (
   ]) assert.match(observe, new RegExp(stance));
   assert.ok(observe.includes("versão feminina/trans"));
   assert.match(observe, /amigo na conversa/);
-  assert.match(observe, /Posturas de repouso não são preferência/);
+  assert.match(observe, /elegant \(woman\): pose elegante; repouso/);
+  assert.match(observe, /double-biceps: braços flexionados exibindo bíceps/);
+  assert.match(observe, /Atenda gestos representáveis, mesmo sem emoção/);
   assert.match(observe, /Use posturas livremente, inclusive em OBSERVE e em silêncio/);
   assert.match(observe, /Você ainda não é digno de ver essa pose/);
   assert.match(observe, /Não mencione arquivos ou configuração/);
-  assert.ok(observe.length < 4300, "core should remain compact");
+  assert.ok(observe.length < 4400, "core should remain compact");
+});
+
+test("valid JSON field specifications do not bias stance to thumbs-up", () => {
+  for (const responseWindow of [false, true]) {
+    const core = v3Messages({...input, responseWindow})[0].content;
+    const schema = core.split("JSON obrigatório: ")[1];
+    assert.ok(schema, "mode must declare output fields");
+    assert.doesNotMatch(schema, /stance":"thumbs-up"/);
+    assert.match(schema, /stance\(postura válida da forma\)/);
+    assert.match(core, /thumbs-up: polegar erguido; aprovação explícita/);
+    assert.match(core, /elegant \(woman\): pose elegante; repouso/);
+  }
 });
